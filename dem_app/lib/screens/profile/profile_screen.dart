@@ -10,34 +10,85 @@ class ProfileScreen extends StatelessWidget {
 
 	@override
 	Widget build(BuildContext context) {
+		final theme = Theme.of(context);
+
 		return Scaffold(
 			backgroundColor: AppColors.background,
-			appBar: AppBar(
-				title: const Text('My Profile'),
-				backgroundColor: AppColors.background,
-			),
+			appBar: AppBar(title: const Text('My Profile')),
 			bottomNavigationBar: const NeuraBottomNavBar(currentIndex: 4),
-			body: Padding(
-				padding: const EdgeInsets.all(20),
-				child: Column(
+			body: SafeArea(
+				child: ListView(
+					padding: const EdgeInsets.fromLTRB(20, 10, 20, 96),
 					children: [
-						const CircleAvatar(
-							radius: 46,
-							backgroundColor: AppColors.primary,
-							child: Text('R', style: TextStyle(fontSize: 32, color: Colors.white)),
+						Container(
+							padding: const EdgeInsets.all(18),
+							decoration: BoxDecoration(
+								gradient: const LinearGradient(
+									begin: Alignment.topLeft,
+									end: Alignment.bottomRight,
+									colors: [AppColors.primary, AppColors.primaryLight],
+								),
+								borderRadius: BorderRadius.circular(22),
+							),
+							child: Row(
+								children: [
+									const CircleAvatar(
+										radius: 33,
+										backgroundColor: Colors.white24,
+										child: Text(
+											'R',
+											style: TextStyle(
+												fontSize: 28,
+												fontWeight: FontWeight.w700,
+												color: Colors.white,
+											),
+										),
+									),
+									const SizedBox(width: 14),
+									Expanded(
+										child: Column(
+											crossAxisAlignment: CrossAxisAlignment.start,
+											children: [
+												Text(
+													'Ramesh Kumar',
+													style: theme.textTheme.titleLarge?.copyWith(
+														color: Colors.white,
+														fontWeight: FontWeight.w700,
+													),
+												),
+												const SizedBox(height: 4),
+												Text(
+													'Patient ID: NC-2048',
+													style: theme.textTheme.bodySmall?.copyWith(
+														color: Colors.white.withValues(alpha: 0.85),
+													),
+												),
+											],
+										),
+									),
+								],
+							),
 						),
-						const SizedBox(height: 14),
-						const Text(
-							'Ramesh Kumar',
-							style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+						const SizedBox(height: 20),
+						_profileTile(
+							icon: Icons.phone_rounded,
+							label: 'Phone',
+							value: '+91 98765 43210',
 						),
-						const SizedBox(height: 24),
-						_profileTile('Phone', '+91 98765 43210'),
-						_profileTile('Emergency Contact', 'Sita Kumar'),
-						_profileTile('Gender', 'Male'),
-						const Spacer(),
+						_profileTile(
+							icon: Icons.family_restroom_rounded,
+							label: 'Emergency Contact',
+							value: 'Sita Kumar',
+						),
+						_profileTile(
+							icon: Icons.person_outline_rounded,
+							label: 'Gender',
+							value: 'Male',
+						),
+						const SizedBox(height: 18),
 						NeuraButton(
 							text: 'Edit Profile',
+							icon: Icons.edit_rounded,
 							onTap: () => context.go('/profile-setup'),
 						),
 					],
@@ -46,19 +97,52 @@ class ProfileScreen extends StatelessWidget {
 		);
 	}
 
-	Widget _profileTile(String label, String value) {
+	Widget _profileTile({
+		required IconData icon,
+		required String label,
+		required String value,
+	}) {
 		return Container(
-			margin: const EdgeInsets.only(bottom: 10),
+			margin: const EdgeInsets.only(bottom: 12),
 			padding: const EdgeInsets.all(14),
 			decoration: BoxDecoration(
 				color: Colors.white,
-				borderRadius: BorderRadius.circular(14),
+				borderRadius: BorderRadius.circular(16),
+				border: Border.all(color: AppColors.border),
 			),
 			child: Row(
-				mainAxisAlignment: MainAxisAlignment.spaceBetween,
 				children: [
-					Text(label, style: const TextStyle(color: AppColors.textSecondary)),
-					Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+					Container(
+						padding: const EdgeInsets.all(8),
+						decoration: BoxDecoration(
+							color: AppColors.primarySoft,
+							borderRadius: BorderRadius.circular(10),
+						),
+						child: Icon(icon, color: AppColors.primary, size: 18),
+					),
+					const SizedBox(width: 12),
+					Expanded(
+						child: Column(
+							crossAxisAlignment: CrossAxisAlignment.start,
+							children: [
+								Text(
+									label,
+									style: const TextStyle(
+										color: AppColors.textSecondary,
+										fontSize: 12,
+									),
+								),
+								const SizedBox(height: 2),
+								Text(
+									value,
+									style: const TextStyle(
+										fontWeight: FontWeight.w700,
+										color: AppColors.textPrimary,
+									),
+								),
+							],
+						),
+					),
 				],
 			),
 		);

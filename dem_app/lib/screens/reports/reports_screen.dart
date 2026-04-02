@@ -13,7 +13,7 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   String selectedFilter = "All";
 
-  final reports = [
+  final List<Map<String, dynamic>> reports = [
     {
       "date": "Mar 31, 2026",
       "risk": "MEDIUM",
@@ -33,64 +33,52 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       bottomNavigationBar: const NeuraBottomNavBar(currentIndex: 1),
-
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(
+                'Health Reports',
+                style: theme.textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 6),
               const Text(
-                "My Reports",
-                style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold),
+                'Track risk trends and assessment history',
+                style: TextStyle(color: AppColors.textSecondary),
               ),
-
               const SizedBox(height: 20),
-
-              // FILTERS
-              Row(
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
                 children: ["All", "This Month", "Last 3 Months"]
-                    .map((filter) => Padding(
-                          padding: const EdgeInsets.only(right: 10),
-                          child: GestureDetector(
-                            onTap: () =>
-                                setState(() => selectedFilter = filter),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 18, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: selectedFilter == filter
-                                    ? AppColors.primary
-                                    : Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(30),
-                              ),
-                              child: Text(
-                                filter,
-                                style: TextStyle(
-                                  color: selectedFilter == filter
-                                      ? Colors.white
-                                      : Colors.black,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ))
+                    .map(
+                      (filter) => ChoiceChip(
+                        label: Text(filter),
+                        selected: selectedFilter == filter,
+                        onSelected: (_) => setState(() => selectedFilter = filter),
+                        selectedColor: AppColors.primary,
+                        labelStyle: TextStyle(
+                          color: selectedFilter == filter
+                              ? Colors.white
+                              : AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        side: const BorderSide(color: AppColors.border),
+                        backgroundColor: Colors.white,
+                      ),
+                    )
                     .toList(),
               ),
-
-              const SizedBox(height: 25),
-
-              // REPORT CARDS
+              const SizedBox(height: 22),
               Column(
-                children: reports
-                    .map((report) => _reportCard(report))
-                    .toList(),
+                children: reports.map((report) => _reportCard(context, report)).toList(),
               ),
             ],
           ),
@@ -99,60 +87,85 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _reportCard(Map report) {
+  Widget _reportCard(BuildContext context, Map<String, dynamic> report) {
+    final theme = Theme.of(context);
     Color riskColor = report["risk"] == "LOW"
         ? AppColors.success
         : report["risk"] == "MEDIUM"
             ? AppColors.warning
             : AppColors.danger;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
+    return Container(
       margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // HEADER ROW
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                report["date"],
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.insert_chart_outlined_rounded,
+                      color: AppColors.primary,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    report["date"],
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: riskColor,
+                  color: riskColor.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   "${report["risk"]} RISK",
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                  style: TextStyle(
+                    color: riskColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               )
             ],
           ),
-
           const SizedBox(height: 15),
-
-          // SCORE BARS
+          const Text(
+            'Assessment category scores',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
           Row(
-            children: (report["scores"] as List<double>)
+            children: (report["scores"] as List)
+                .cast<double>()
                 .map((score) => Expanded(
                       child: Container(
                         margin: const EdgeInsets.symmetric(horizontal: 4),
-                        height: 6,
+                        height: 8,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(10),
-                          color: Colors.grey.shade200,
+                          color: AppColors.backgroundAlt,
                         ),
                         child: FractionallySizedBox(
                           alignment: Alignment.centerLeft,
@@ -168,17 +181,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ))
                 .toList(),
           ),
-
-          const SizedBox(height: 15),
-
-          // VIEW REPORT
+          const SizedBox(height: 16),
           Align(
             alignment: Alignment.centerRight,
-            child: GestureDetector(
-              onTap: () => context.go('/assessment/results'),
-              child: const Text(
-                "View Full Report >",
-                style: TextStyle(color: AppColors.primary),
+            child: TextButton.icon(
+              onPressed: () => context.go('/assessment/results'),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: const Text('View Full Report'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                textStyle: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
           )

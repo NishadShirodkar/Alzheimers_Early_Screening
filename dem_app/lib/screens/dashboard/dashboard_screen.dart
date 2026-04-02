@@ -3,258 +3,299 @@ import '../../core/theme/app_colors.dart';
 import 'package:go_router/go_router.dart';
 import '../../widgets/bottom_nav_bar.dart';
 
-
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       backgroundColor: AppColors.background,
-
       bottomNavigationBar: const NeuraBottomNavBar(currentIndex: 0),
-
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // HEADER
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppColors.primary, Color(0xFF0E8F8F)],
-                ),
-                borderRadius:
-                    BorderRadius.vertical(bottom: Radius.circular(30)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(context, theme),
+              const SizedBox(height: 18),
+              _buildAssessmentBanner(context),
+              const SizedBox(height: 24),
+              Text('Quick Actions', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 12),
+              GridView.count(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  const SizedBox(height: 40),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Good Morning,\nRamesh 👋",
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold),
-                          ),
-                          SizedBox(height: 5),
-                          Text(
-                            "Last Assessment: 3 days ago",
-                            style: TextStyle(color: Colors.white70),
-                          )
-                        ],
-                      ),
-                      Row(
-                        children: [
-                          _circleIcon(Icons.notifications),
-                          const SizedBox(width: 10),
-                          _circleAvatar("R"),
-                        ],
-                      )
-                    ],
+                  _actionCard(
+                    context,
+                    icon: Icons.summarize_rounded,
+                    title: 'View Reports',
+                    subtitle: 'Risk and trends',
+                    route: '/reports',
                   ),
-
-                  const SizedBox(height: 20),
-
-                  // RISK CARD
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      children: [
-                        // FAKE PROGRESS RING
-                        Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            SizedBox(
-                              height: 70,
-                              width: 70,
-                              child: CircularProgressIndicator(
-                                value: 0.8,
-                                strokeWidth: 6,
-                                color: AppColors.success,
-                                backgroundColor: Colors.grey.shade200,
-                              ),
-                            ),
-                            const Text("82/100",
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-
-                        const SizedBox(width: 15),
-
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text("Low Risk",
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold)),
-                              SizedBox(height: 5),
-                              Text(
-                                "Your neurological health looks great.\nKeep it up!",
-                                style: TextStyle(fontSize: 13),
-                              ),
-                              SizedBox(height: 5),
-                              GestureDetector(
-                                onTap: () => context.go('/reports'),
-                                child: Text("View full report >",
-                                    style: TextStyle(
-                                        color: AppColors.primary)),
-                              ),
-                            ],
-                          ),
-                        )
-                      ],
-                    ),
+                  _actionCard(
+                    context,
+                    icon: Icons.medication_liquid_rounded,
+                    title: 'Medications',
+                    subtitle: 'Daily schedule',
+                    route: '/medications',
+                  ),
+                  _actionCard(
+                    context,
+                    icon: Icons.medical_services_rounded,
+                    title: 'Find Doctors',
+                    subtitle: 'Specialist care',
+                    route: '/doctors',
+                  ),
+                  _actionCard(
+                    context,
+                    icon: Icons.graphic_eq_rounded,
+                    title: 'Voice Assistant',
+                    subtitle: 'Hands-free support',
+                    route: '/voice-assistant',
                   ),
                 ],
               ),
-            ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-            const SizedBox(height: 20),
-
-            // CTA CARD
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF8A65), AppColors.accent],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                ),
+  Widget _buildHeader(BuildContext context, ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primary, AppColors.primaryLight],
+        ),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      "Ready for today's check-in?",
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18),
-                    ),
-                    const SizedBox(height: 5),
-                    const Text("4 tests • ~15 minutes",
-                        style: TextStyle(color: Colors.white70)),
-                    const SizedBox(height: 15),
-                    GestureDetector(
-                      onTap: () => context.go('/assessment'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Text("Start Assessment >"),
+                    Text(
+                      'Good Morning, Ramesh',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
                       ),
-                    )
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Your last assessment was 3 days ago',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.86),
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // QUICK ACTIONS
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text("Quick Actions",
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              _circleIcon(Icons.notifications_outlined),
+              const SizedBox(width: 10),
+              const CircleAvatar(
+                radius: 18,
+                backgroundColor: Colors.white24,
+                child: Text('R', style: TextStyle(color: Colors.white)),
               ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
             ),
-
-            const SizedBox(height: 15),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: GridView.count(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 15,
-                  crossAxisSpacing: 15,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _actionCard(context, Icons.description, "View Reports", "/reports"),
-                    _actionCard(context, Icons.medication, "Medications", "/medications"),
-                    _actionCard(context, Icons.local_hospital, "Find Doctors", "/doctors"),
-                    _actionCard(context, Icons.mic, "Voice Assistant", "/voice-assistant"),
-                  ],
-                )
+            child: Row(
+              children: [
+                SizedBox(
+                  height: 68,
+                  width: 68,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        value: 0.82,
+                        strokeWidth: 7,
+                        color: AppColors.success,
+                        backgroundColor: AppColors.backgroundAlt,
+                      ),
+                      Text(
+                        '82',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Current Risk: Low',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: AppColors.success,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Neurological health indicators are stable this week.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      InkWell(
+                        onTap: () => context.go('/reports'),
+                        child: Text(
+                          'View detailed report',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
 
-            const SizedBox(height: 80),
-          ],
-        ),
+  Widget _buildAssessmentBanner(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.monitor_heart_outlined,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  "Ready for today's check-in?",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '4 tests, approximately 15 minutes. Best completed in a quiet space.',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: () => context.go('/assessment'),
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text('Start Assessment'),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _circleIcon(IconData icon) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8),
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.white24,
       ),
-      child: Icon(icon, color: Colors.white),
-    );
-  }
-
-  Widget _circleAvatar(String text) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.white24,
-      ),
-      child: Text(text, style: const TextStyle(color: Colors.white)),
+      child: Icon(icon, color: Colors.white, size: 20),
     );
   }
 
   Widget _actionCard(
-  BuildContext context,
-  IconData icon,
-  String title,
-  String route,
-) {
-  return GestureDetector(
-    onTap: () {
-      context.go(route);
-    },
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String route,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => context.go(route),
+      child: Ink(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.border),
+        ),
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primarySoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: AppColors.primary, size: 21),
+            ),
+            const Spacer(),
+            Text(
+              title,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: AppColors.primary),
-          const Spacer(),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w500))
-        ],
-      ),
-    ),
-  );
-}
+    );
+  }
 }
