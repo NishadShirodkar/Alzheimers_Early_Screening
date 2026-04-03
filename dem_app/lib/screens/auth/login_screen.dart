@@ -157,57 +157,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: SingleChildScrollView(
                   child: Column(
                     children: [
-                      // Tabs
-                      Row(
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => setState(() => isLogin = true),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: isLogin
-                                      ? AppColors.primary
-                                      : Colors.grey.shade200,
-                                  borderRadius: BorderRadius.circular(50),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  "Login",
-                                  style: TextStyle(
-                                    color: isLogin ? Colors.white : Colors.black,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => setState(() => isLogin = false),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: !isLogin
-                                      ? AppColors.primary
-                                      : Colors.grey.shade200,
-                                  borderRadius: BorderRadius.circular(50),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  "Sign Up",
-                                  style: TextStyle(
-                                    color: !isLogin ? Colors.white : Colors.black,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 20),
-
                       // Phone
                       TextFormField(
                         controller: _phoneController,
@@ -233,10 +182,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
 
                       const SizedBox(height: 16),
-
+                      
                       // Password
-                      // Fix: TextFormField has no .copyWith() or onPressed
-                      //      Suffix icon toggle belongs in InputDecoration
                       TextFormField(
                         controller: _passwordController,
                         obscureText: _obscureText,
