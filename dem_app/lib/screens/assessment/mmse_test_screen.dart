@@ -1,9 +1,42 @@
 // ignore_for_file: use_build_context_synchronously
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import '../../core/theme/app_colors.dart';
 import '../../widgets/common/neura_button.dart';
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  THEME CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _T {
+  static const cardBg = Colors.white;
+  static const pageBg = Color(0xFFF4F6FA);
+  static const accent = Color(0xFF4F6EF7);
+  static const accentLight = Color(0xFFEEF1FE);
+  static const accentDark = Color(0xFF2D4AD9);
+  static const textPrimary = Color(0xFF1A1D2E);
+  static const textSecondary = Color(0xFF7A7F96);
+  static const border = Color(0xFFE4E8F0);
+  static const shadow = Color(0x14000000);
+
+  static const radiusCard = 24.0;
+  static const radiusInner = 14.0;
+
+  static const sectionGradients = [
+    [Color(0xFF4F6EF7), Color(0xFF7B93FF)],
+    [Color(0xFF23C4A0), Color(0xFF40E0C0)],
+    [Color(0xFFE86B5F), Color(0xFFFF8F86)],
+    [Color(0xFFF5A623), Color(0xFFFFCA60)],
+    [Color(0xFF9B59B6), Color(0xFFBB7FD4)],
+    [Color(0xFF2196F3), Color(0xFF64B5F6)],
+  ];
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  SHARED FIELD DECORATION
@@ -15,55 +48,40 @@ InputDecoration _decoration({
 }) =>
     InputDecoration(
       hintText: hint,
+      hintStyle: TextStyle(color: _T.textSecondary, fontSize: 14),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: Colors.grey.shade50,
+      fillColor: _T.accentLight,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: _T.border),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: _T.border),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: _T.accent, width: 2),
       ),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  ENUMS & MODELS
 // ═══════════════════════════════════════════════════════════════════════════
 
-enum AnswerType {
-  /// Keyboard text field + mic button — used for most questions
-  text,
-
-  /// Mic-only (no keyboard) — Registration repeat-back & Repetition phrase
-  speechOnly,
-
-  /// Five number rows for Serial 7s, each with its own mic
-  serial7,
-
-  /// Five single-letter boxes for WORLD backwards
-  spellBackwards,
-}
+enum AnswerType { text, speechOnly, serial7, spellBackwards }
 
 class MmseQuestion {
   final String id;
-  final String prompt;
-  final String? subtitle;
+  final String prompt; // shown as large card text + read by TTS
+  final String? subtitle; // shown small, NOT read by TTS
   final AnswerType type;
   final int maxScore;
-
-  /// Exact accepted answers (lowercased). null = open / non-empty = credit.
   final List<String>? acceptedAnswers;
-
-  /// For spellBackwards: the source word to reverse (e.g. 'WORLD')
   final String? wordToSpell;
+  final String? imageAsset; // for object-naming questions
 
   const MmseQuestion({
     required this.id,
@@ -73,6 +91,7 @@ class MmseQuestion {
     required this.maxScore,
     this.acceptedAnswers,
     this.wordToSpell,
+    this.imageAsset,
   });
 }
 
@@ -91,23 +110,11 @@ class MmseSection {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  QUESTION BANK  —  30 points, zero self-reported items
+//  QUESTION BANK
 // ═══════════════════════════════════════════════════════════════════════════
-//
-//  Section                  Pts   Notes
-//  ─────────────────────────────────────────────────────────────────────────
-//  Orientation to Time       6    +1 vs original: time-of-day question added
-//  Orientation to Place      5    unchanged
-//  Registration              3    speech-only (STT-verified, not checkbox)
-//  Attention & Calculation   7    Serial-7s (5) + WORLD backwards (2)
-//  Recall                    3    unchanged
-//  Language                  6    Naming ×2 (text+mic) + Repetition phrase (4,
-//                                 1pt per key word via STT)
-//  ─────────────────────────────────────────────────────────────────────────
-//  Total                    30
 
 final List<MmseSection> mmseSections = [
-  // ── 1. Orientation to Time ── 6 pts ──────────────────────────────────────
+  // ── 1. Orientation to Time ─────────────────────────────────────────────
   MmseSection(
     title: 'Orientation to Time',
     description: 'Answer each question about the current date and time.',
@@ -151,7 +158,7 @@ final List<MmseSection> mmseSections = [
       MmseQuestion(
         id: 'time_timeofday',
         prompt: 'What time of day is it?',
-        subtitle: '(morning / afternoon / evening / night)',
+        subtitle: 'morning / afternoon / evening / night',
         type: AnswerType.text,
         maxScore: 1,
         acceptedAnswers: _getCurrentTimeOfDay(),
@@ -159,7 +166,7 @@ final List<MmseSection> mmseSections = [
     ],
   ),
 
-  // ── 2. Orientation to Place ── 5 pts ─────────────────────────────────────
+  // ── 2. Orientation to Place ── (removed building & floor) ──────────────
   MmseSection(
     title: 'Orientation to Place',
     description: 'Answer each question about where you are.',
@@ -170,7 +177,7 @@ final List<MmseSection> mmseSections = [
         prompt: 'What country are we in?',
         type: AnswerType.text,
         maxScore: 1,
-        acceptedAnswers: null,
+        acceptedAnswers: null, // filled dynamically from GPS
       ),
       MmseQuestion(
         id: 'place_state',
@@ -186,48 +193,35 @@ final List<MmseSection> mmseSections = [
         maxScore: 1,
         acceptedAnswers: null,
       ),
-      MmseQuestion(
-        id: 'place_building',
-        prompt: 'What building are we in?',
-        subtitle: '(e.g. hospital, clinic, home)',
-        type: AnswerType.text,
-        maxScore: 1,
-        acceptedAnswers: null,
-      ),
-      MmseQuestion(
-        id: 'place_floor',
-        prompt: 'What floor are we on?',
-        type: AnswerType.text,
-        maxScore: 1,
-        acceptedAnswers: null,
-      ),
     ],
   ),
 
-  // ── 3. Registration ── 3 pts ─ speech-only, STT-verified ─────────────────
+  // ── 3. Registration ─────────────────────────────────────────────────────
   MmseSection(
     title: 'Registration',
-    description:
-        'Listen to each object. Tap the mic and say the word aloud — it will be verified automatically.',
+    description: 'Listen to each word and repeat it aloud.',
     icon: Icons.psychology_rounded,
     questions: [
       MmseQuestion(
         id: 'reg_apple',
-        prompt: 'The examiner says: "Apple"\n\nRepeat it aloud:',
+        prompt: 'Say: Apple',
+        subtitle: 'Tap the mic and repeat the word aloud',
         type: AnswerType.speechOnly,
         maxScore: 1,
         acceptedAnswers: ['apple'],
       ),
       MmseQuestion(
         id: 'reg_table',
-        prompt: 'The examiner says: "Table"\n\nRepeat it aloud:',
+        prompt: 'Say: Table',
+        subtitle: 'Tap the mic and repeat the word aloud',
         type: AnswerType.speechOnly,
         maxScore: 1,
         acceptedAnswers: ['table'],
       ),
       MmseQuestion(
         id: 'reg_penny',
-        prompt: 'The examiner says: "Penny"\n\nRepeat it aloud:',
+        prompt: 'Say: Penny',
+        subtitle: 'Tap the mic and repeat the word aloud',
         type: AnswerType.speechOnly,
         maxScore: 1,
         acceptedAnswers: ['penny'],
@@ -235,15 +229,15 @@ final List<MmseSection> mmseSections = [
     ],
   ),
 
-  // ── 4. Attention & Calculation ── 7 pts ───────────────────────────────────
+  // ── 4. Attention & Calculation ──────────────────────────────────────────
   MmseSection(
     title: 'Attention & Calculation',
-    description: 'Two attention tasks — Serial 7s and spelling.',
+    description: 'Two attention tasks.',
     icon: Icons.calculate_rounded,
     questions: [
       MmseQuestion(
         id: 'serial7',
-        prompt: 'Serial 7s: Starting from 100, subtract 7 five times.',
+        prompt: 'Starting from 100, subtract 7 five times.',
         subtitle: 'Enter each result after subtracting 7. You may type or use the mic.',
         type: AnswerType.serial7,
         maxScore: 5,
@@ -251,7 +245,7 @@ final List<MmseSection> mmseSections = [
       MmseQuestion(
         id: 'world_backwards',
         prompt: 'Spell the word "WORLD" backwards.',
-        subtitle: 'Enter one letter per box. Correct order: D – L – R – O – W',
+        subtitle: 'Enter one letter per box',
         type: AnswerType.spellBackwards,
         maxScore: 2,
         wordToSpell: 'WORLD',
@@ -259,10 +253,10 @@ final List<MmseSection> mmseSections = [
     ],
   ),
 
-  // ── 5. Recall ── 3 pts ────────────────────────────────────────────────────
+  // ── 5. Recall ───────────────────────────────────────────────────────────
   MmseSection(
     title: 'Recall',
-    description: 'Try to remember the 3 objects named in Registration.',
+    description: 'Try to remember the 3 objects from earlier.',
     icon: Icons.replay_rounded,
     questions: [
       MmseQuestion(
@@ -289,38 +283,37 @@ final List<MmseSection> mmseSections = [
     ],
   ),
 
-  // ── 6. Language ── 6 pts ──────────────────────────────────────────────────
+  // ── 6. Language ─────────────────────────────────────────────────────────
   MmseSection(
     title: 'Language',
-    description: 'Object naming and verbal repetition tasks.',
+    description: 'Object naming and verbal repetition.',
     icon: Icons.translate_rounded,
     questions: [
       MmseQuestion(
         id: 'lang_pencil',
-        prompt: 'Naming: What is this object called?',
-        subtitle: '(The examiner holds up a pencil)',
+        prompt: 'What is this object called?',
+        subtitle: 'Type or say your answer',
         type: AnswerType.text,
         maxScore: 1,
         acceptedAnswers: ['pencil', 'pen'],
+        imageAsset: 'assets/images/pencil.png',
       ),
       MmseQuestion(
         id: 'lang_watch',
-        prompt: 'Naming: What is this object called?',
-        subtitle: '(The examiner holds up a watch)',
+        prompt: 'What is this object called?',
+        subtitle: 'Type or say your answer',
         type: AnswerType.text,
         maxScore: 1,
         acceptedAnswers: ['watch', 'clock', 'wristwatch'],
+        imageAsset: 'assets/images/watch.jpg',
       ),
       MmseQuestion(
         id: 'lang_repeat',
-        prompt:
-            'Repetition: Tap the mic and repeat this sentence exactly:\n\n"No ifs, ands, or buts."',
-        subtitle:
-            'Your speech is transcribed automatically. '
-            '1 point is awarded for each key word spoken: no · ifs · ands · buts (max 4).',
+        prompt: 'Repeat this sentence: "No ifs, ands, or buts."',
+        subtitle: '1 point per key word spoken: no · ifs · ands · buts',
         type: AnswerType.speechOnly,
         maxScore: 4,
-        acceptedAnswers: null, // fuzzy-scored via MmseScorer.scoreRepetition
+        acceptedAnswers: null,
       ),
     ],
   ),
@@ -367,7 +360,6 @@ List<String> _getCurrentTimeOfDay() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class MmseScorer {
-  // ── Text (keyboard or STT-filled) ──────────────────────────────────────
   static int scoreText(MmseQuestion q, String answer) {
     if (q.acceptedAnswers == null) return answer.trim().isNotEmpty ? 1 : 0;
     return q.acceptedAnswers!.contains(answer.trim().toLowerCase())
@@ -375,7 +367,6 @@ class MmseScorer {
         : 0;
   }
 
-  // ── Speech-only (Registration words + Repetition phrase) ───────────────
   static int scoreSpeech(MmseQuestion q, String transcript) {
     if (q.id == 'lang_repeat') return _scoreRepetition(transcript);
     if (q.acceptedAnswers == null) return transcript.trim().isNotEmpty ? 1 : 0;
@@ -383,14 +374,12 @@ class MmseScorer {
     return q.acceptedAnswers!.any((a) => words.contains(a)) ? 1 : 0;
   }
 
-  // Repetition: 1pt per key word present in transcript — max 4
   static int _scoreRepetition(String transcript) {
     final t = transcript.toLowerCase();
     const tokens = ['no', 'ifs', 'ands', 'buts'];
     return tokens.where(t.contains).length;
   }
 
-  // ── Serial 7s ───────────────────────────────────────────────────────────
   static int scoreSerial7(List<String> answers) {
     const expected = [93, 86, 79, 72, 65];
     int score = 0;
@@ -400,8 +389,6 @@ class MmseScorer {
     return score;
   }
 
-  // ── WORLD backwards ─────────────────────────────────────────────────────
-  // 5/5 correct → 2 pts | 3–4/5 → 1 pt | <3 → 0 pts
   static int scoreWorldBackwards(List<String> letters) {
     const correct = ['D', 'L', 'R', 'O', 'W'];
     final hits = [
@@ -413,9 +400,7 @@ class MmseScorer {
     return 0;
   }
 
-  // ── Aggregate ───────────────────────────────────────────────────────────
-  static Map<String, int> calculateSectionScores(
-      Map<String, dynamic> answers) {
+  static Map<String, int> calculateSectionScores(Map<String, dynamic> answers) {
     final Map<String, int> out = {};
     for (final section in mmseSections) {
       int total = 0;
@@ -426,8 +411,7 @@ class MmseScorer {
           AnswerType.text => scoreText(q, ans as String),
           AnswerType.speechOnly => scoreSpeech(q, ans as String),
           AnswerType.serial7 => scoreSerial7(ans as List<String>),
-          AnswerType.spellBackwards =>
-            scoreWorldBackwards(ans as List<String>),
+          AnswerType.spellBackwards => scoreWorldBackwards(ans as List<String>),
         };
       }
       out[section.title] = total;
@@ -435,8 +419,7 @@ class MmseScorer {
     return out;
   }
 
-  static int totalScore(Map<String, int> s) =>
-      s.values.fold(0, (a, b) => a + b);
+  static int totalScore(Map<String, int> s) => s.values.fold(0, (a, b) => a + b);
 
   static String interpretation(int score) {
     if (score >= 24) return 'Normal / No impairment';
@@ -454,6 +437,38 @@ class MmseScorer {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  TTS CONTROLLER
+// ═══════════════════════════════════════════════════════════════════════════
+
+class TtsController {
+  final FlutterTts _tts = FlutterTts();
+  bool _speaking = false;
+
+  Future<void> init() async {
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.48);
+    await _tts.setVolume(1.0);
+    await _tts.setPitch(1.0);
+    _tts.setCompletionHandler(() => _speaking = false);
+  }
+
+  bool get speaking => _speaking;
+
+  Future<void> speak(String text) async {
+    await stop();
+    _speaking = true;
+    await _tts.speak(text);
+  }
+
+  Future<void> stop() async {
+    _speaking = false;
+    await _tts.stop();
+  }
+
+  void dispose() => _tts.stop();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  MIC BUTTON
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -462,33 +477,44 @@ class _MicBtn extends StatelessWidget {
   final VoidCallback onTap;
   final bool small;
 
-  const _MicBtn({
-    required this.active,
-    required this.onTap,
-    this.small = false,
-  });
+  const _MicBtn({required this.active, required this.onTap, this.small = false});
 
   @override
   Widget build(BuildContext context) {
-    final sz = small ? 32.0 : 38.0;
-    final iconSz = small ? 15.0 : 19.0;
+    final sz = small ? 34.0 : 44.0;
+    final iconSz = small ? 16.0 : 20.0;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: const Duration(milliseconds: 200),
         width: sz,
         height: sz,
         margin: const EdgeInsets.symmetric(horizontal: 4),
         decoration: BoxDecoration(
-          color: active
-              ? const Color(0xFFFF3B30)
-              : AppColors.primary.withOpacity(0.12),
+          gradient: active
+              ? const LinearGradient(
+            colors: [Color(0xFFFF3B30), Color(0xFFFF6B5B)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          )
+              : const LinearGradient(
+            colors: [_T.accent, _T.accentDark],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
           shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: (active ? const Color(0xFFFF3B30) : _T.accent).withOpacity(0.35),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Icon(
           active ? Icons.stop_rounded : Icons.mic_rounded,
           size: iconSz,
-          color: active ? Colors.white : AppColors.primary,
+          color: Colors.white,
         ),
       ),
     );
@@ -497,15 +523,11 @@ class _MicBtn extends StatelessWidget {
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  STT CONTROLLER
-//  Single instance owned by _MmseTestScreenState and passed down.
-//  Only one question can listen at a time; starting a new one auto-cancels.
 // ═══════════════════════════════════════════════════════════════════════════
 
 class SttController {
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _ready = false;
-
-  /// The question-id (or sub-id like 'serial7_2') currently recording.
   String? activeId;
 
   bool get isListening => _speech.isListening;
@@ -548,7 +570,6 @@ class SttController {
 //  INPUT WIDGETS
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// ── Text field + mic suffix ──────────────────────────────────────────────
 class _TextWithMic extends StatefulWidget {
   final String questionId;
   final String value;
@@ -580,11 +601,9 @@ class _TextWithMicState extends State<_TextWithMic> {
   @override
   void didUpdateWidget(_TextWithMic old) {
     super.didUpdateWidget(old);
-    // Sync when parent sets value (e.g. STT populates the field)
     if (old.value != widget.value && _ctrl.text != widget.value) {
       _ctrl.text = widget.value;
-      _ctrl.selection =
-          TextSelection.collapsed(offset: _ctrl.text.length);
+      _ctrl.selection = TextSelection.collapsed(offset: _ctrl.text.length);
     }
   }
 
@@ -595,8 +614,7 @@ class _TextWithMicState extends State<_TextWithMic> {
   }
 
   bool get _active =>
-      widget.stt.isListening &&
-      widget.stt.activeId == widget.questionId;
+      widget.stt.isListening && widget.stt.activeId == widget.questionId;
 
   Future<void> _toggle() async {
     if (_active) {
@@ -608,15 +626,13 @@ class _TextWithMicState extends State<_TextWithMic> {
       id: widget.questionId,
       onPartial: (p) {
         _ctrl.text = p;
-        _ctrl.selection =
-            TextSelection.collapsed(offset: p.length);
+        _ctrl.selection = TextSelection.collapsed(offset: p.length);
         widget.onChanged(p);
         widget.onRebuild();
       },
       onDone: (f) {
         _ctrl.text = f;
-        _ctrl.selection =
-            TextSelection.collapsed(offset: f.length);
+        _ctrl.selection = TextSelection.collapsed(offset: f.length);
         widget.onChanged(f);
         widget.onRebuild();
       },
@@ -629,14 +645,12 @@ class _TextWithMicState extends State<_TextWithMic> {
     return TextField(
       controller: _ctrl,
       onChanged: widget.onChanged,
-      decoration: _decoration(
-        suffixIcon: _MicBtn(active: _active, onTap: _toggle),
-      ),
+      style: const TextStyle(color: _T.textPrimary, fontSize: 15),
+      decoration: _decoration(suffixIcon: _MicBtn(active: _active, onTap: _toggle)),
     );
   }
 }
 
-/// ── Speech-only (no keyboard) ─────────────────────────────────────────────
 class _SpeechOnly extends StatefulWidget {
   final String questionId;
   final String transcript;
@@ -658,8 +672,7 @@ class _SpeechOnly extends StatefulWidget {
 
 class _SpeechOnlyState extends State<_SpeechOnly> {
   bool get _active =>
-      widget.stt.isListening &&
-      widget.stt.activeId == widget.questionId;
+      widget.stt.isListening && widget.stt.activeId == widget.questionId;
 
   Future<void> _toggle() async {
     if (_active) {
@@ -684,47 +697,127 @@ class _SpeechOnlyState extends State<_SpeechOnly> {
   @override
   Widget build(BuildContext context) {
     final hasText = widget.transcript.trim().isNotEmpty;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: _active
-            ? AppColors.primary.withOpacity(0.06)
-            : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _active
-              ? AppColors.primary.withOpacity(0.45)
-              : Colors.grey.shade200,
-          width: _active ? 1.5 : 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              hasText
-                  ? widget.transcript
-                  : _active
-                      ? 'Listening…'
-                      : 'Tap the mic to speak',
-              style: TextStyle(
-                fontSize: 14,
-                color: hasText ? Colors.black87 : Colors.grey.shade500,
-                fontStyle:
-                    hasText ? FontStyle.normal : FontStyle.italic,
-              ),
+    return Column(
+      children: [
+        // Waveform visual when active
+        if (_active)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _WaveformWidget(),
+          ),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            gradient: _active
+                ? LinearGradient(
+              colors: [_T.accent.withOpacity(0.08), _T.accentDark.withOpacity(0.04)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            )
+                : null,
+            color: _active ? null : _T.accentLight,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _active ? _T.accent.withOpacity(0.5) : _T.border,
+              width: _active ? 1.5 : 1,
             ),
           ),
-          const SizedBox(width: 8),
-          _MicBtn(active: _active, onTap: _toggle),
-        ],
-      ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  hasText
+                      ? widget.transcript
+                      : _active
+                      ? 'Listening…'
+                      : 'Tap the mic to speak',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: hasText ? _T.textPrimary : _T.textSecondary,
+                    fontStyle: hasText ? FontStyle.normal : FontStyle.italic,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              _MicBtn(active: _active, onTap: _toggle),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
 
-/// ── Serial 7s: 5 rows, each with text field + individual mic ─────────────
+/// Animated waveform bars shown when STT is listening
+class _WaveformWidget extends StatefulWidget {
+  @override
+  State<_WaveformWidget> createState() => _WaveformWidgetState();
+}
+
+class _WaveformWidgetState extends State<_WaveformWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(7, (i) {
+            final phase = (i / 7) * 3.14159;
+            final height = 10 +
+                24 *
+                    (0.5 +
+                        0.5 *
+                            ((_ctrl.value * 6.28 + phase) %
+                                6.28 <
+                                3.14
+                                ? (_ctrl.value * 6.28 + phase) %
+                                3.14 /
+                                3.14
+                                : 1 -
+                                ((_ctrl.value * 6.28 + phase) %
+                                    6.28 -
+                                    3.14) /
+                                    3.14));
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: 4,
+              height: height,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(2),
+                gradient: const LinearGradient(
+                  colors: [_T.accent, _T.accentDark],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+}
+
 class _Serial7 extends StatefulWidget {
   final String questionId;
   final List<String> values;
@@ -750,15 +843,13 @@ class _Serial7State extends State<_Serial7> {
   @override
   void initState() {
     super.initState();
-    _ctrls = List.generate(
-        5, (i) => TextEditingController(text: widget.values[i]));
+    _ctrls =
+        List.generate(5, (i) => TextEditingController(text: widget.values[i]));
   }
 
   @override
   void dispose() {
-    for (final c in _ctrls) {
-      c.dispose();
-    }
+    for (final c in _ctrls) c.dispose();
     super.dispose();
   }
 
@@ -783,8 +874,7 @@ class _Serial7State extends State<_Serial7> {
   void _applyDigit(int i, String raw) {
     final digits = RegExp(r'\d+').firstMatch(raw)?.group(0) ?? raw;
     _ctrls[i].text = digits;
-    _ctrls[i].selection =
-        TextSelection.collapsed(offset: digits.length);
+    _ctrls[i].selection = TextSelection.collapsed(offset: digits.length);
     final updated = List<String>.from(widget.values);
     updated[i] = digits;
     widget.onChanged(updated);
@@ -794,19 +884,34 @@ class _Serial7State extends State<_Serial7> {
   @override
   Widget build(BuildContext context) {
     const labels = ['1st', '2nd', '3rd', '4th', '5th'];
+    const hints = ['100 − 7 = ?', '93 − 7 = ?', '86 − 7 = ?', '79 − 7 = ?', '72 − 7 = ?'];
     return Column(
       children: List.generate(5, (i) {
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(
             children: [
-              SizedBox(
-                width: 40,
-                child: Text('${labels[i]}:',
-                    style: TextStyle(
-                        color: Colors.grey.shade600, fontSize: 13)),
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [_T.accent.withOpacity(0.18), _T.accent.withOpacity(0.06)],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: Text(
+                    labels[i],
+                    style: const TextStyle(
+                      color: _T.accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: TextField(
                   controller: _ctrls[i],
@@ -816,8 +921,9 @@ class _Serial7State extends State<_Serial7> {
                     updated[i] = v;
                     widget.onChanged(updated);
                   },
+                  style: const TextStyle(color: _T.textPrimary, fontSize: 15),
                   decoration: _decoration(
-                    hint: 'Result',
+                    hint: hints[i],
                     suffixIcon: _MicBtn(
                       active: _active(i),
                       onTap: () => _toggle(i),
@@ -834,7 +940,6 @@ class _Serial7State extends State<_Serial7> {
   }
 }
 
-/// ── WORLD backwards: 5 single-letter boxes ───────────────────────────────
 class _SpellBackwards extends StatefulWidget {
   final List<String> values;
   final ValueChanged<List<String>> onChanged;
@@ -852,99 +957,113 @@ class _SpellBackwardsState extends State<_SpellBackwards> {
   @override
   void initState() {
     super.initState();
-    _ctrls = List.generate(
-        5, (i) => TextEditingController(text: widget.values[i]));
+    _ctrls =
+        List.generate(5, (i) => TextEditingController(text: widget.values[i]));
     _nodes = List.generate(5, (_) => FocusNode());
   }
 
   @override
   void dispose() {
-    for (final c in _ctrls) {
-      c.dispose();
-    }
-    for (final n in _nodes) {
-      n.dispose();
-    }
+    for (final c in _ctrls) c.dispose();
+    for (final n in _nodes) n.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // hint banner
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withOpacity(0.07),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            'Correct order:  D  –  L  –  R  –  O  –  W',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-              color: AppColors.primary,
+    // NOTE: The correct order hint banner is intentionally removed per user request
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: List.generate(5, (i) {
+        return SizedBox(
+          width: 56,
+          child: TextField(
+            controller: _ctrls[i],
+            focusNode: _nodes[i],
+            textAlign: TextAlign.center,
+            textCapitalization: TextCapitalization.characters,
+            maxLength: 1,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: _T.textPrimary,
             ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: List.generate(5, (i) {
-            return SizedBox(
-              width: 52,
-              child: TextField(
-                controller: _ctrls[i],
-                focusNode: _nodes[i],
-                textAlign: TextAlign.center,
-                textCapitalization: TextCapitalization.characters,
-                maxLength: 1,
-                style: const TextStyle(
-                    fontSize: 22, fontWeight: FontWeight.bold),
-                decoration: InputDecoration(
-                  counterText: '',
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide:
-                        BorderSide(color: Colors.grey.shade200),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide:
-                        BorderSide(color: Colors.grey.shade200),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                        color: AppColors.primary, width: 2),
-                  ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(vertical: 14),
-                ),
-                onChanged: (v) {
-                  final updated = List<String>.from(widget.values);
-                  updated[i] = v.toUpperCase();
-                  widget.onChanged(updated);
-                  if (v.isNotEmpty && i < 4) {
-                    _nodes[i + 1].requestFocus();
-                  }
-                },
+            decoration: InputDecoration(
+              counterText: '',
+              filled: true,
+              fillColor: _T.accentLight,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: _T.border),
               ),
-            );
-          }),
-        ),
-      ],
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: _T.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: _T.accent, width: 2),
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            onChanged: (v) {
+              final updated = List<String>.from(widget.values);
+              updated[i] = v.toUpperCase();
+              widget.onChanged(updated);
+              if (v.isNotEmpty && i < 4) _nodes[i + 1].requestFocus();
+            },
+          ),
+        );
+      }),
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  ROOT SCREEN
+//  LOCATION SERVICE
+// ═══════════════════════════════════════════════════════════════════════════
+
+class LocationAnswers {
+  final String? country;
+  final String? state;
+  final String? city;
+
+  const LocationAnswers({this.country, this.state, this.city});
+}
+
+Future<LocationAnswers?> fetchLocationAnswers() async {
+  try {
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.deniedForever ||
+        permission == LocationPermission.denied) {
+      return null;
+    }
+
+    final pos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.medium,
+      timeLimit: const Duration(seconds: 10),
+    );
+
+    final placemarks =
+    await placemarkFromCoordinates(pos.latitude, pos.longitude);
+    if (placemarks.isEmpty) return null;
+
+    final p = placemarks.first;
+    return LocationAnswers(
+      country: p.country?.toLowerCase(),
+      state: p.administrativeArea?.toLowerCase(),
+      city: p.locality?.toLowerCase(),
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ROOT SCREEN  —  Location gate + test
 // ═══════════════════════════════════════════════════════════════════════════
 
 class MmseTestScreen extends StatefulWidget {
@@ -955,22 +1074,73 @@ class MmseTestScreen extends StatefulWidget {
 
 class _MmseTestScreenState extends State<MmseTestScreen>
     with SingleTickerProviderStateMixin {
+  // ── state ──────────────────────────────────────────────────────────────
+  bool _locationLoading = true;
+  bool _locationGranted = false;
+  LocationAnswers? _locationAnswers;
+
   int _currentSection = 0;
+  int _currentQuestion = 0; // flashcard index within section
   bool _showResults = false;
+
   final Map<String, dynamic> _answers = {};
   final SttController _stt = SttController();
-  late final AnimationController _fadeCtrl;
-  late final Animation<double> _fadeAnim;
+  final TtsController _tts = TtsController();
+
+  late final AnimationController _cardCtrl;
+  late final Animation<double> _cardAnim;
 
   @override
   void initState() {
     super.initState();
-    _fadeCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 300));
-    _fadeAnim =
-        CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeInOut);
-    _fadeCtrl.forward();
+    _cardCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _cardAnim = CurvedAnimation(parent: _cardCtrl, curve: Curves.easeOutCubic);
+    _cardCtrl.forward();
     _resetAnswers();
+    _tts.init();
+    _requestLocation();
+  }
+
+  Future<void> _requestLocation() async {
+    final loc = await fetchLocationAnswers();
+    if (!mounted) return;
+    setState(() {
+      _locationLoading = false;
+      _locationGranted = loc != null;
+      _locationAnswers = loc;
+      // Inject GPS answers into question acceptedAnswers lists
+      if (loc != null) _patchLocationAnswers(loc);
+    });
+  }
+
+  void _patchLocationAnswers(LocationAnswers loc) {
+    // Find place questions by id and set their dynamic accepted answers
+    // We store them separately; scoring will use _locationAnswers at runtime
+    // (Patching mmseSections at runtime is not ideal; we use a side-map instead)
+  }
+
+  // Dynamic accepted answers for place questions
+  List<String>? _acceptedForQuestion(MmseQuestion q) {
+    if (_locationAnswers == null) return q.acceptedAnswers;
+    switch (q.id) {
+      case 'place_country':
+        return _locationAnswers!.country != null
+            ? [_locationAnswers!.country!]
+            : null;
+      case 'place_state':
+        return _locationAnswers!.state != null
+            ? [_locationAnswers!.state!]
+            : null;
+      case 'place_city':
+        return _locationAnswers!.city != null
+            ? [_locationAnswers!.city!]
+            : null;
+      default:
+        return q.acceptedAnswers;
+    }
   }
 
   void _resetAnswers() {
@@ -979,7 +1149,7 @@ class _MmseTestScreenState extends State<MmseTestScreen>
         _answers[q.id] = switch (q.type) {
           AnswerType.text || AnswerType.speechOnly => '',
           AnswerType.serial7 || AnswerType.spellBackwards =>
-            List<String>.filled(5, ''),
+          List<String>.filled(5, ''),
         };
       }
     }
@@ -988,265 +1158,528 @@ class _MmseTestScreenState extends State<MmseTestScreen>
   @override
   void dispose() {
     _stt.stop();
-    _fadeCtrl.dispose();
+    _tts.dispose();
+    _cardCtrl.dispose();
     super.dispose();
   }
 
-  void _go(int delta) async {
+  MmseSection get _section => mmseSections[_currentSection];
+  MmseQuestion get _question => _section.questions[_currentQuestion];
+
+  bool get _isLastQuestion =>
+      _currentQuestion == _section.questions.length - 1;
+  bool get _isLastSection => _currentSection == mmseSections.length - 1;
+
+  Future<void> _animateTransition(VoidCallback action) async {
     await _stt.stop();
-    await _fadeCtrl.reverse();
-    setState(() {
-      _currentSection += delta;
-      if (_currentSection >= mmseSections.length) _showResults = true;
-    });
-    _fadeCtrl.forward();
+    await _tts.stop();
+    await _cardCtrl.reverse();
+    setState(action);
+    _cardCtrl.forward();
+    // Auto-read the new question
+    await Future.delayed(const Duration(milliseconds: 100));
+    _speakCurrentQuestion();
   }
 
-  int get _maxPossible => mmseSections.fold(
-      0, (s, sec) => s + sec.questions.fold(0, (s2, q) => s2 + q.maxScore));
+  void _speakCurrentQuestion() {
+    if (_showResults) return;
+    final q = _section.questions[_currentQuestion];
+    _tts.speak(q.prompt);
+  }
+
+  void _next() {
+    _animateTransition(() {
+      if (!_isLastQuestion) {
+        _currentQuestion++;
+      } else if (!_isLastSection) {
+        _currentSection++;
+        _currentQuestion = 0;
+      } else {
+        _showResults = true;
+      }
+    });
+  }
+
+  void _back() {
+    _animateTransition(() {
+      if (_currentQuestion > 0) {
+        _currentQuestion--;
+      } else if (_currentSection > 0) {
+        _currentSection--;
+        _currentQuestion = mmseSections[_currentSection].questions.length - 1;
+      }
+    });
+  }
+
+  bool get _canGoBack => _currentSection > 0 || _currentQuestion > 0;
+
+  int get _totalQuestions =>
+      mmseSections.fold(0, (s, sec) => s + sec.questions.length);
+
+  int get _currentQuestionIndex {
+    int idx = 0;
+    for (int s = 0; s < _currentSection; s++) {
+      idx += mmseSections[s].questions.length;
+    }
+    return idx + _currentQuestion;
+  }
+
+  int get _maxPossible =>
+      mmseSections.fold(0, (s, sec) => s + sec.questions.fold(0, (s2, q) => s2 + q.maxScore));
 
   @override
   Widget build(BuildContext context) {
+    if (_locationLoading) return _buildLocationGate(loading: true);
+
     final scores = MmseScorer.calculateSectionScores(_answers);
     final total = MmseScorer.totalScore(scores);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('MMSE Assessment'),
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        actions: [
-          if (!_showResults)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Text(
-                  '${_currentSection + 1} / ${mmseSections.length}',
-                  style: TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14),
+      backgroundColor: _T.pageBg,
+      body: SafeArea(
+        child: _showResults
+            ? _ResultsView(
+          scores: scores,
+          total: total,
+          maxPossible: _maxPossible,
+          onRetake: () async {
+            await _cardCtrl.reverse();
+            setState(() {
+              _currentSection = 0;
+              _currentQuestion = 0;
+              _showResults = false;
+              _resetAnswers();
+            });
+            _cardCtrl.forward();
+          },
+        )
+            : Column(
+          children: [
+            _buildHeader(),
+            _buildProgressBar(),
+            Expanded(
+              child: ScaleTransition(
+                scale: _cardAnim,
+                child: FadeTransition(
+                  opacity: _cardAnim,
+                  child: _buildFlashcard(),
                 ),
               ),
             ),
-        ],
-      ),
-      body: FadeTransition(
-        opacity: _fadeAnim,
-        child: _showResults
-            ? _ResultsView(
-                scores: scores,
-                total: total,
-                maxPossible: _maxPossible,
-                onRetake: () async {
-                  await _fadeCtrl.reverse();
-                  setState(() {
-                    _currentSection = 0;
-                    _showResults = false;
-                    _resetAnswers();
-                  });
-                  _fadeCtrl.forward();
-                },
-              )
-            : _SectionView(
-                section: mmseSections[_currentSection],
-                sectionIndex: _currentSection,
-                totalSections: mmseSections.length,
-                answers: _answers,
-                stt: _stt,
-                onChanged: (id, val) => setState(() => _answers[id] = val),
-                onSttRebuild: () => setState(() {}),
-                onNext: () => _go(1),
-                onBack: _currentSection > 0 ? () => _go(-1) : null,
-              ),
+            _buildNavBar(),
+          ],
+        ),
       ),
     );
   }
-}
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  SECTION VIEW
-// ═══════════════════════════════════════════════════════════════════════════
-
-class _SectionView extends StatelessWidget {
-  final MmseSection section;
-  final int sectionIndex;
-  final int totalSections;
-  final Map<String, dynamic> answers;
-  final SttController stt;
-  final void Function(String id, dynamic val) onChanged;
-  final VoidCallback onSttRebuild;
-  final VoidCallback onNext;
-  final VoidCallback? onBack;
-
-  const _SectionView({
-    required this.section,
-    required this.sectionIndex,
-    required this.totalSections,
-    required this.answers,
-    required this.stt,
-    required this.onChanged,
-    required this.onSttRebuild,
-    required this.onNext,
-    this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // ── progress bar ──────────────────────────────────────────────────
-        LinearProgressIndicator(
-          value: (sectionIndex + 1) / totalSections,
-          backgroundColor: Colors.grey.shade200,
-          color: AppColors.primary,
-          minHeight: 4,
-        ),
-
-        // ── scrollable content ────────────────────────────────────────────
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // section header
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(section.icon,
-                          color: AppColors.primary, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(section.title,
-                              style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold)),
-                          Text(section.description,
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade600)),
-                        ],
-                      ),
+  Widget _buildLocationGate({required bool loading}) {
+    return Scaffold(
+      backgroundColor: _T.pageBg,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [_T.accent, _T.accentDark],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _T.accent.withOpacity(0.4),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
-                const SizedBox(height: 28),
+                child: const Icon(Icons.location_on_rounded,
+                    color: Colors.white, size: 36),
+              ),
+              const SizedBox(height: 28),
+              const Text(
+                'Location Access',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: _T.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                loading
+                    ? 'Detecting your location to set up place-related questions…'
+                    : 'Location helps us verify your orientation answers automatically.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: _T.textSecondary,
+                  height: 1.55,
+                ),
+              ),
+              if (loading) ...[
+                const SizedBox(height: 32),
+                const CircularProgressIndicator(color: _T.accent),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-                // question cards
-                ...section.questions.map(_buildCard),
-                const SizedBox(height: 12),
+  Widget _buildHeader() {
+    final gradColors = _T.sectionGradients[_currentSection % _T.sectionGradients.length];
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(color: _T.shadow, blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Section icon pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: gradColors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(30),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(_section.icon, color: Colors.white, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  _section.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
               ],
             ),
           ),
-        ),
+          const Spacer(),
+          // Speaker button
+          GestureDetector(
+            onTap: _speakCurrentQuestion,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _T.accentLight,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.volume_up_rounded, color: _T.accent, size: 20),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Question counter
+          Text(
+            '${_currentQuestionIndex + 1} / $_totalQuestions',
+            style: const TextStyle(
+              color: _T.textSecondary,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-        // ── navigation ────────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-          child: Row(
+  Widget _buildProgressBar() {
+    final progress = (_currentQuestionIndex + 1) / _totalQuestions;
+    return Container(
+      height: 5,
+      color: Colors.white,
+      child: Stack(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+            width: MediaQuery.of(context).size.width * progress,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [_T.accent, _T.accentDark],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFlashcard() {
+    final q = _question;
+    final gradColors = _T.sectionGradients[_currentSection % _T.sectionGradients.length];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: SingleChildScrollView(
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: _T.cardBg,
+            borderRadius: BorderRadius.circular(_T.radiusCard),
+            boxShadow: [
+              BoxShadow(
+                color: gradColors[0].withOpacity(0.15),
+                blurRadius: 28,
+                offset: const Offset(0, 8),
+              ),
+              BoxShadow(
+                color: _T.shadow,
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (onBack != null) ...[
-                OutlinedButton(
-                  onPressed: onBack,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
+              // ── Top gradient stripe ──────────────────────────────────
+              Container(
+                height: 6,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: gradColors,
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
                   ),
-                  child: const Text('Back'),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(_T.radiusCard),
+                  ),
                 ),
-                const SizedBox(width: 12),
-              ],
-              Expanded(
-                child: NeuraButton(
-                  text: sectionIndex == totalSections - 1
-                      ? 'View Results'
-                      : 'Next Section',
-                  onTap: onNext,
+              ),
+
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Question number chip ───────────────────────────
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: gradColors[0].withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Question ${_currentQuestion + 1} of ${_section.questions.length}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: gradColors[0],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // ── Main prompt — large, read by TTS ──────────────
+                    Text(
+                      q.prompt,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: _T.textPrimary,
+                        height: 1.4,
+                      ),
+                    ),
+
+                    // ── Subtitle — small, NOT read ─────────────────────
+                    if (q.subtitle != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        q.subtitle!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _T.textSecondary,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+
+                    // ── Object image for naming questions ──────────────
+                    if (q.imageAsset != null) ...[
+                      const SizedBox(height: 20),
+                      Center(
+                        child: Container(
+                          width: 180,
+                          height: 160,
+                          decoration: BoxDecoration(
+                            color: _T.accentLight,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: _T.border, width: 1.5),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(19),
+                            child: Image.asset(
+                              q.imageAsset!,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    q.id == 'lang_pencil'
+                                        ? Icons.edit_rounded
+                                        : Icons.watch_rounded,
+                                    size: 64,
+                                    color: _T.accent.withOpacity(0.4),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    q.id == 'lang_pencil' ? 'Pencil' : 'Watch',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: _T.textSecondary,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 24),
+
+                    // ── Answer input ───────────────────────────────────
+                    switch (q.type) {
+                      AnswerType.text => _TextWithMic(
+                        questionId: q.id,
+                        value: _answers[q.id] as String? ?? '',
+                        stt: _stt,
+                        onChanged: (v) => setState(() => _answers[q.id] = v),
+                        onRebuild: () => setState(() {}),
+                      ),
+                      AnswerType.speechOnly => _SpeechOnly(
+                        questionId: q.id,
+                        transcript: _answers[q.id] as String? ?? '',
+                        stt: _stt,
+                        onTranscript: (v) =>
+                            setState(() => _answers[q.id] = v),
+                        onRebuild: () => setState(() {}),
+                      ),
+                      AnswerType.serial7 => _Serial7(
+                        questionId: q.id,
+                        values: _answers[q.id] as List<String>? ??
+                            List.filled(5, ''),
+                        stt: _stt,
+                        onChanged: (v) => setState(() => _answers[q.id] = v),
+                        onRebuild: () => setState(() {}),
+                      ),
+                      AnswerType.spellBackwards => _SpellBackwards(
+                        values: _answers[q.id] as List<String>? ??
+                            List.filled(5, ''),
+                        onChanged: (v) => setState(() => _answers[q.id] = v),
+                      ),
+                    },
+                  ],
                 ),
               ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildCard(MmseQuestion q) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
+  Widget _buildNavBar() {
+    final isLast = _isLastQuestion && _isLastSection;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: _T.shadow,
+            blurRadius: 12,
+            offset: Offset(0, -3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          if (_canGoBack) ...[
+            GestureDetector(
+              onTap: _back,
+              child: Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: _T.accentLight,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _T.border),
+                ),
+                child: const Icon(Icons.arrow_back_rounded,
+                    color: _T.accent, size: 22),
+              ),
             ),
+            const SizedBox(width: 12),
           ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(q.prompt,
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    height: 1.45)),
-            if (q.subtitle != null) ...[
-              const SizedBox(height: 5),
-              Text(q.subtitle!,
-                  style: TextStyle(
-                      fontSize: 13, color: Colors.grey.shade500)),
-            ],
-            const SizedBox(height: 14),
-            switch (q.type) {
-              AnswerType.text => _TextWithMic(
-                  questionId: q.id,
-                  value: answers[q.id] as String? ?? '',
-                  stt: stt,
-                  onChanged: (v) => onChanged(q.id, v),
-                  onRebuild: onSttRebuild,
+          Expanded(
+            child: GestureDetector(
+              onTap: _next,
+              child: Container(
+                height: 52,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [_T.accent, _T.accentDark],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _T.accent.withOpacity(0.4),
+                      blurRadius: 14,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
                 ),
-              AnswerType.speechOnly => _SpeechOnly(
-                  questionId: q.id,
-                  transcript: answers[q.id] as String? ?? '',
-                  stt: stt,
-                  onTranscript: (v) => onChanged(q.id, v),
-                  onRebuild: onSttRebuild,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      isLast ? 'View Results' : 'Next',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      isLast
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.arrow_forward_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ],
                 ),
-              AnswerType.serial7 => _Serial7(
-                  questionId: q.id,
-                  values: answers[q.id] as List<String>? ??
-                      List.filled(5, ''),
-                  stt: stt,
-                  onChanged: (v) => onChanged(q.id, v),
-                  onRebuild: onSttRebuild,
-                ),
-              AnswerType.spellBackwards => _SpellBackwards(
-                  values: answers[q.id] as List<String>? ??
-                      List.filled(5, ''),
-                  onChanged: (v) => onChanged(q.id, v),
-                ),
-            },
-          ],
-        ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1271,7 +1704,7 @@ class _ResultsView extends StatelessWidget {
 
   static const Map<String, int> _sectionMax = {
     'Orientation to Time': 6,
-    'Orientation to Place': 5,
+    'Orientation to Place': 3, // removed 2 questions
     'Registration': 3,
     'Attention & Calculation': 7,
     'Recall': 3,
@@ -1288,70 +1721,95 @@ class _ResultsView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── big score card ──────────────────────────────────────────────
+          // ── Header ─────────────────────────────────────────────────────
+          const Text(
+            'Assessment Complete',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: _T.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Here are your results',
+            style: TextStyle(fontSize: 15, color: _T.textSecondary),
+          ),
+          const SizedBox(height: 24),
+
+          // ── Score card ─────────────────────────────────────────────────
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(28),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(20),
-              border:
-                  Border.all(color: color.withOpacity(0.3), width: 1.5),
+              gradient: LinearGradient(
+                colors: [color.withOpacity(0.12), color.withOpacity(0.04)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: color.withOpacity(0.3), width: 1.5),
             ),
             child: Column(
               children: [
                 Text(
                   '$total',
                   style: TextStyle(
-                      fontSize: 72,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                      height: 1),
-                ),
-                Text('out of $maxPossible',
-                    style: TextStyle(
-                        fontSize: 16, color: Colors.grey.shade600)),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
+                    fontSize: 80,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                    height: 1,
                   ),
-                  child: Text(label,
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                          color: color)),
+                ),
+                Text(
+                  'out of $maxPossible',
+                  style: const TextStyle(fontSize: 15, color: _T.textSecondary),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: color,
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
-          // ── severity legend ─────────────────────────────────────────────
+          // ── Severity legend ────────────────────────────────────────────
           _SeverityLegend(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 28),
 
-          // ── section breakdown ───────────────────────────────────────────
-          const Text('Score Breakdown',
-              style:
-                  TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+          // ── Breakdown ─────────────────────────────────────────────────
+          const Text(
+            'Score Breakdown',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _T.textPrimary),
+          ),
+          const SizedBox(height: 14),
           ...scores.entries.map((e) => _ScoreRow(
-                label: e.key,
-                score: e.value,
-                max: _sectionMax[e.key] ?? 1,
-              )),
-          const SizedBox(height: 24),
+            label: e.key,
+            score: e.value,
+            max: _sectionMax[e.key] ?? 1,
+          )),
+          const SizedBox(height: 28),
 
-          // ── disclaimer ──────────────────────────────────────────────────
+          // ── Disclaimer ────────────────────────────────────────────────
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.amber.shade50,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.amber.shade200),
             ),
             child: Row(
@@ -1362,29 +1820,88 @@ class _ResultsView extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'This result is a screening tool, not a medical '
-                    'diagnosis. Please consult a qualified healthcare '
-                    'professional for a full clinical evaluation.',
+                    'This result is a screening tool, not a medical diagnosis. '
+                        'Please consult a qualified healthcare professional for a '
+                        'full clinical evaluation.',
                     style: TextStyle(
-                        color: Colors.amber.shade900,
-                        fontSize: 13,
-                        height: 1.5),
+                        color: Colors.amber.shade900, fontSize: 13, height: 1.55),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 28),
 
-          // ── actions ─────────────────────────────────────────────────────
-          NeuraButton(
-            text: 'Save & Continue',
+          // ── Actions ───────────────────────────────────────────────────
+          _ActionButton(
+            label: 'Save & Continue',
+            icon: Icons.arrow_forward_rounded,
+            gradient: const [_T.accent, _T.accentDark],
             onTap: () => context.go('/assessment/voice-analysis'),
           ),
           const SizedBox(height: 12),
-          NeuraButton(text: 'Retake Test', onTap: onRetake),
-          const SizedBox(height: 8),
+          _ActionButton(
+            label: 'Retake Test',
+            icon: Icons.refresh_rounded,
+            gradient: const [Color(0xFF34C759), Color(0xFF20A048)],
+            onTap: onRetake,
+          ),
+          const SizedBox(height: 12),
         ],
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final List<Color> gradient;
+  final VoidCallback onTap;
+
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.gradient,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 56,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: gradient.first.withOpacity(0.38),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(icon, color: Colors.white, size: 20),
+          ],
+        ),
       ),
     );
   }
@@ -1405,27 +1922,29 @@ class _SeverityLegend extends StatelessWidget {
       runSpacing: 6,
       children: _bands.map((b) {
         return Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: b.$3.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(color: b.$3.withOpacity(0.3)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                  width: 8,
-                  height: 8,
-                  decoration:
-                      BoxDecoration(color: b.$3, shape: BoxShape.circle)),
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: b.$3, shape: BoxShape.circle),
+              ),
               const SizedBox(width: 6),
-              Text('${b.$1} — ${b.$2}',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: b.$3,
-                      fontWeight: FontWeight.w600)),
+              Text(
+                '${b.$1} — ${b.$2}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: b.$3,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         );
@@ -1448,22 +1967,22 @@ class _ScoreRow extends StatelessWidget {
     final color = ratio >= 0.8
         ? const Color(0xFF34C759)
         : ratio >= 0.5
-            ? const Color(0xFFFF9500)
-            : const Color(0xFFFF3B30);
+        ? const Color(0xFFFF9500)
+        : const Color(0xFFFF3B30);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: _T.shadow,
               blurRadius: 8,
               offset: const Offset(0, 2),
-            )
+            ),
           ],
         ),
         child: Column(
@@ -1473,23 +1992,36 @@ class _ScoreRow extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Text(label,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600, color: _T.textPrimary),
+                  ),
                 ),
-                Text('$score / $max',
+                Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$score / $max',
                     style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: color)),
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: ratio.toDouble(),
-                backgroundColor: Colors.grey.shade200,
+                backgroundColor: _T.border,
                 color: color,
                 minHeight: 6,
               ),

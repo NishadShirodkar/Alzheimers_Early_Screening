@@ -2,9 +2,28 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import 'package:go_router/go_router.dart';
 import '../../widgets/bottom_nav_bar.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+
+  Future<bool> requestPermissions() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.camera,
+      Permission.microphone,
+      Permission.location,
+    ].request();
+
+    return statuses[Permission.camera]!.isGranted &&
+        statuses[Permission.microphone]!.isGranted &&
+        statuses[Permission.location]!.isGranted;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -228,7 +247,19 @@ class DashboardScreen extends StatelessWidget {
           SizedBox(
             height: 48,
             child: ElevatedButton.icon(
-              onPressed: () => context.go('/assessment'),
+              onPressed: () async {
+                bool granted = await requestPermissions();
+
+                if (granted) {
+                  context.go('/assessment');
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Please allow all permissions to continue"),
+                    ),
+                  );
+                }
+              },
               icon: const Icon(Icons.play_arrow_rounded),
               label: const Text('Start Assessment'),
             ),
@@ -250,12 +281,12 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _actionCard(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String route,
-  }) {
+      BuildContext context, {
+        required IconData icon,
+        required String title,
+        required String subtitle,
+        required String route,
+      }) {
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: () => context.go(route),
