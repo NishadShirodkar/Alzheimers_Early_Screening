@@ -325,9 +325,8 @@ final List<MmseSection> mmseSections = [
 
 List<String> _getCurrentSeason() {
   final m = DateTime.now().month;
-  if (m >= 3 && m <= 5) return ['spring'];
-  if (m >= 6 && m <= 8) return ['summer'];
-  if (m >= 9 && m <= 11) return ['fall', 'autumn'];
+  if (m >= 3 && m <= 6) return ['summer'];
+  if (m >= 7 && m <= 9) return ['rainy', 'monsoon'];
   return ['winter'];
 }
 
