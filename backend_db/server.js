@@ -22,4 +22,4 @@ app.use("/api/patient", patientRoutes);   // signup, signin, profile, meal times
 app.use("/api/medicine", medicineRoutes); // add medicine, fetch by day
 app.use("/api/alarm", alarmRoutes);       // upcoming alarms, details, taken, missed
 
-app.listen(5000, () => console.log("🚀 Server running on port 5000"));
+app.listen(5000, "0.0.0.0", () => console.log("🚀 Server running on port 5000"));

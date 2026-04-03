@@ -5,22 +5,34 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../core/theme/app_colors.dart';
 import '../../widgets/common/neura_button.dart';
 
-// ┌─────────────────────────────────────────────────────────────────────────┐
-// │  SETUP REQUIRED                                                         │
-// │                                                                         │
-// │  pubspec.yaml:                                                          │
-// │    speech_to_text: ^6.6.2                                               │
-// │                                                                         │
-// │  Android  →  android/app/src/main/AndroidManifest.xml                  │
-// │    <uses-permission android:name="android.permission.RECORD_AUDIO"/>    │
-// │    <uses-permission android:name="android.permission.INTERNET"/>        │
-// │                                                                         │
-// │  iOS  →  ios/Runner/Info.plist                                          │
-// │    <key>NSSpeechRecognitionUsageDescription</key>                       │
-// │    <string>Used to verify spoken answers in the MMSE test.</string>     │
-// │    <key>NSMicrophoneUsageDescription</key>                              │
-// │    <string>Microphone needed for MMSE speech tasks.</string>            │
-// └─────────────────────────────────────────────────────────────────────────┘
+// ═══════════════════════════════════════════════════════════════════════════
+//  SHARED FIELD DECORATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+InputDecoration _decoration({
+  String hint = 'Enter your answer',
+  Widget? suffixIcon,
+}) =>
+    InputDecoration(
+      hintText: hint,
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: Colors.grey.shade50,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+      ),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    );
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  ENUMS & MODELS
@@ -443,6 +455,48 @@ class MmseScorer {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  MIC BUTTON
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _MicBtn extends StatelessWidget {
+  final bool active;
+  final VoidCallback onTap;
+  final bool small;
+
+  const _MicBtn({
+    required this.active,
+    required this.onTap,
+    this.small = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sz = small ? 32.0 : 38.0;
+    final iconSz = small ? 15.0 : 19.0;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: sz,
+        height: sz,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: active
+              ? const Color(0xFFFF3B30)
+              : AppColors.primary.withOpacity(0.12),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          active ? Icons.stop_rounded : Icons.mic_rounded,
+          size: iconSz,
+          color: active ? Colors.white : AppColors.primary,
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  STT CONTROLLER
 //  Single instance owned by _MmseTestScreenState and passed down.
 //  Only one question can listen at a time; starting a new one auto-cancels.
@@ -488,315 +542,6 @@ class SttController {
   Future<void> stop() async {
     activeId = null;
     await _speech.stop();
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  ROOT SCREEN
-// ═══════════════════════════════════════════════════════════════════════════
-
-class MmseTestScreen extends StatefulWidget {
-  const MmseTestScreen({super.key});
-  @override
-  State<MmseTestScreen> createState() => _MmseTestScreenState();
-}
-
-class _MmseTestScreenState extends State<MmseTestScreen>
-    with SingleTickerProviderStateMixin {
-  int _currentSection = 0;
-  bool _showResults = false;
-  final Map<String, dynamic> _answers = {};
-  final SttController _stt = SttController();
-  late final AnimationController _fadeCtrl;
-  late final Animation<double> _fadeAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _fadeCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 300));
-    _fadeAnim =
-        CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeInOut);
-    _fadeCtrl.forward();
-    _resetAnswers();
-  }
-
-  void _resetAnswers() {
-    for (final s in mmseSections) {
-      for (final q in s.questions) {
-        _answers[q.id] = switch (q.type) {
-          AnswerType.text || AnswerType.speechOnly => '',
-          AnswerType.serial7 || AnswerType.spellBackwards =>
-            List<String>.filled(5, ''),
-        };
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _stt.stop();
-    _fadeCtrl.dispose();
-    super.dispose();
-  }
-
-  void _go(int delta) async {
-    await _stt.stop();
-    await _fadeCtrl.reverse();
-    setState(() {
-      _currentSection += delta;
-      if (_currentSection >= mmseSections.length) _showResults = true;
-    });
-    _fadeCtrl.forward();
-  }
-
-  int get _maxPossible => mmseSections.fold(
-      0, (s, sec) => s + sec.questions.fold(0, (s2, q) => s2 + q.maxScore));
-
-  @override
-  Widget build(BuildContext context) {
-    final scores = MmseScorer.calculateSectionScores(_answers);
-    final total = MmseScorer.totalScore(scores);
-
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('MMSE Assessment'),
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        actions: [
-          if (!_showResults)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Text(
-                  '${_currentSection + 1} / ${mmseSections.length}',
-                  style: TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14),
-                ),
-              ),
-            ),
-        ],
-      ),
-      body: FadeTransition(
-        opacity: _fadeAnim,
-        child: _showResults
-            ? _ResultsView(
-                scores: scores,
-                total: total,
-                maxPossible: _maxPossible,
-                onRetake: () async {
-                  await _fadeCtrl.reverse();
-                  setState(() {
-                    _currentSection = 0;
-                    _showResults = false;
-                    _resetAnswers();
-                  });
-                  _fadeCtrl.forward();
-                },
-              )
-            : _SectionView(
-                section: mmseSections[_currentSection],
-                sectionIndex: _currentSection,
-                totalSections: mmseSections.length,
-                answers: _answers,
-                stt: _stt,
-                onChanged: (id, val) => setState(() => _answers[id] = val),
-                onSttRebuild: () => setState(() {}),
-                onNext: () => _go(1),
-                onBack: _currentSection > 0 ? () => _go(-1) : null,
-              ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  SECTION VIEW
-// ═══════════════════════════════════════════════════════════════════════════
-
-class _SectionView extends StatelessWidget {
-  final MmseSection section;
-  final int sectionIndex;
-  final int totalSections;
-  final Map<String, dynamic> answers;
-  final SttController stt;
-  final void Function(String id, dynamic val) onChanged;
-  final VoidCallback onSttRebuild;
-  final VoidCallback onNext;
-  final VoidCallback? onBack;
-
-  const _SectionView({
-    required this.section,
-    required this.sectionIndex,
-    required this.totalSections,
-    required this.answers,
-    required this.stt,
-    required this.onChanged,
-    required this.onSttRebuild,
-    required this.onNext,
-    this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // ── progress bar ──────────────────────────────────────────────────
-        LinearProgressIndicator(
-          value: (sectionIndex + 1) / totalSections,
-          backgroundColor: Colors.grey.shade200,
-          color: AppColors.primary,
-          minHeight: 4,
-        ),
-
-        // ── scrollable content ────────────────────────────────────────────
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // section header
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(section.icon,
-                          color: AppColors.primary, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(section.title,
-                              style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold)),
-                          Text(section.description,
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade600)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 28),
-
-                // question cards
-                ...section.questions.map(_buildCard),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
-        ),
-
-        // ── navigation ────────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-          child: Row(
-            children: [
-              if (onBack != null) ...[
-                OutlinedButton(
-                  onPressed: onBack,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                  ),
-                  child: const Text('Back'),
-                ),
-                const SizedBox(width: 12),
-              ],
-              Expanded(
-                child: NeuraButton(
-                  text: sectionIndex == totalSections - 1
-                      ? 'View Results'
-                      : 'Next Section',
-                  onTap: onNext,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCard(MmseQuestion q) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(q.prompt,
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    height: 1.45)),
-            if (q.subtitle != null) ...[
-              const SizedBox(height: 5),
-              Text(q.subtitle!,
-                  style: TextStyle(
-                      fontSize: 13, color: Colors.grey.shade500)),
-            ],
-            const SizedBox(height: 14),
-            switch (q.type) {
-              AnswerType.text => _TextWithMic(
-                  questionId: q.id,
-                  value: answers[q.id] as String? ?? '',
-                  stt: stt,
-                  onChanged: (v) => onChanged(q.id, v),
-                  onRebuild: onSttRebuild,
-                ),
-              AnswerType.speechOnly => _SpeechOnly(
-                  questionId: q.id,
-                  transcript: answers[q.id] as String? ?? '',
-                  stt: stt,
-                  onTranscript: (v) => onChanged(q.id, v),
-                  onRebuild: onSttRebuild,
-                ),
-              AnswerType.serial7 => _Serial7(
-                  questionId: q.id,
-                  values: answers[q.id] as List<String>? ??
-                      List.filled(5, ''),
-                  stt: stt,
-                  onChanged: (v) => onChanged(q.id, v),
-                  onRebuild: onSttRebuild,
-                ),
-              AnswerType.spellBackwards => _SpellBackwards(
-                  values: answers[q.id] as List<String>? ??
-                      List.filled(5, ''),
-                  onChanged: (v) => onChanged(q.id, v),
-                ),
-            },
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -1200,75 +945,313 @@ class _SpellBackwardsState extends State<_SpellBackwards> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  MIC BUTTON
+//  ROOT SCREEN
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _MicBtn extends StatelessWidget {
-  final bool active;
-  final VoidCallback onTap;
-  final bool small;
+class MmseTestScreen extends StatefulWidget {
+  const MmseTestScreen({super.key});
+  @override
+  State<MmseTestScreen> createState() => _MmseTestScreenState();
+}
 
-  const _MicBtn({
-    required this.active,
-    required this.onTap,
-    this.small = false,
-  });
+class _MmseTestScreenState extends State<MmseTestScreen>
+    with SingleTickerProviderStateMixin {
+  int _currentSection = 0;
+  bool _showResults = false;
+  final Map<String, dynamic> _answers = {};
+  final SttController _stt = SttController();
+  late final AnimationController _fadeCtrl;
+  late final Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 300));
+    _fadeAnim =
+        CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeInOut);
+    _fadeCtrl.forward();
+    _resetAnswers();
+  }
+
+  void _resetAnswers() {
+    for (final s in mmseSections) {
+      for (final q in s.questions) {
+        _answers[q.id] = switch (q.type) {
+          AnswerType.text || AnswerType.speechOnly => '',
+          AnswerType.serial7 || AnswerType.spellBackwards =>
+            List<String>.filled(5, ''),
+        };
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _stt.stop();
+    _fadeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _go(int delta) async {
+    await _stt.stop();
+    await _fadeCtrl.reverse();
+    setState(() {
+      _currentSection += delta;
+      if (_currentSection >= mmseSections.length) _showResults = true;
+    });
+    _fadeCtrl.forward();
+  }
+
+  int get _maxPossible => mmseSections.fold(
+      0, (s, sec) => s + sec.questions.fold(0, (s2, q) => s2 + q.maxScore));
 
   @override
   Widget build(BuildContext context) {
-    final sz = small ? 32.0 : 38.0;
-    final iconSz = small ? 15.0 : 19.0;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: sz,
-        height: sz,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        decoration: BoxDecoration(
-          color: active
-              ? const Color(0xFFFF3B30)
-              : AppColors.primary.withOpacity(0.12),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          active ? Icons.stop_rounded : Icons.mic_rounded,
-          size: iconSz,
-          color: active ? Colors.white : AppColors.primary,
-        ),
+    final scores = MmseScorer.calculateSectionScores(_answers);
+    final total = MmseScorer.totalScore(scores);
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('MMSE Assessment'),
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        actions: [
+          if (!_showResults)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(
+                child: Text(
+                  '${_currentSection + 1} / ${mmseSections.length}',
+                  style: TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14),
+                ),
+              ),
+            ),
+        ],
+      ),
+      body: FadeTransition(
+        opacity: _fadeAnim,
+        child: _showResults
+            ? _ResultsView(
+                scores: scores,
+                total: total,
+                maxPossible: _maxPossible,
+                onRetake: () async {
+                  await _fadeCtrl.reverse();
+                  setState(() {
+                    _currentSection = 0;
+                    _showResults = false;
+                    _resetAnswers();
+                  });
+                  _fadeCtrl.forward();
+                },
+              )
+            : _SectionView(
+                section: mmseSections[_currentSection],
+                sectionIndex: _currentSection,
+                totalSections: mmseSections.length,
+                answers: _answers,
+                stt: _stt,
+                onChanged: (id, val) => setState(() => _answers[id] = val),
+                onSttRebuild: () => setState(() {}),
+                onNext: () => _go(1),
+                onBack: _currentSection > 0 ? () => _go(-1) : null,
+              ),
       ),
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  SHARED FIELD DECORATION
+//  SECTION VIEW
 // ═══════════════════════════════════════════════════════════════════════════
 
-InputDecoration _decoration({
-  String hint = 'Enter your answer',
-  Widget? suffixIcon,
-}) =>
-    InputDecoration(
-      hintText: hint,
-      suffixIcon: suffixIcon,
-      filled: true,
-      fillColor: Colors.grey.shade50,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade200),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade200),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.primary, width: 1.5),
-      ),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+class _SectionView extends StatelessWidget {
+  final MmseSection section;
+  final int sectionIndex;
+  final int totalSections;
+  final Map<String, dynamic> answers;
+  final SttController stt;
+  final void Function(String id, dynamic val) onChanged;
+  final VoidCallback onSttRebuild;
+  final VoidCallback onNext;
+  final VoidCallback? onBack;
+
+  const _SectionView({
+    required this.section,
+    required this.sectionIndex,
+    required this.totalSections,
+    required this.answers,
+    required this.stt,
+    required this.onChanged,
+    required this.onSttRebuild,
+    required this.onNext,
+    this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // ── progress bar ──────────────────────────────────────────────────
+        LinearProgressIndicator(
+          value: (sectionIndex + 1) / totalSections,
+          backgroundColor: Colors.grey.shade200,
+          color: AppColors.primary,
+          minHeight: 4,
+        ),
+
+        // ── scrollable content ────────────────────────────────────────────
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // section header
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(section.icon,
+                          color: AppColors.primary, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(section.title,
+                              style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold)),
+                          Text(section.description,
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 28),
+
+                // question cards
+                ...section.questions.map(_buildCard),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        ),
+
+        // ── navigation ────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+          child: Row(
+            children: [
+              if (onBack != null) ...[
+                OutlinedButton(
+                  onPressed: onBack,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: const Text('Back'),
+                ),
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: NeuraButton(
+                  text: sectionIndex == totalSections - 1
+                      ? 'View Results'
+                      : 'Next Section',
+                  onTap: onNext,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
+  }
+
+  Widget _buildCard(MmseQuestion q) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(q.prompt,
+                style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    height: 1.45)),
+            if (q.subtitle != null) ...[
+              const SizedBox(height: 5),
+              Text(q.subtitle!,
+                  style: TextStyle(
+                      fontSize: 13, color: Colors.grey.shade500)),
+            ],
+            const SizedBox(height: 14),
+            switch (q.type) {
+              AnswerType.text => _TextWithMic(
+                  questionId: q.id,
+                  value: answers[q.id] as String? ?? '',
+                  stt: stt,
+                  onChanged: (v) => onChanged(q.id, v),
+                  onRebuild: onSttRebuild,
+                ),
+              AnswerType.speechOnly => _SpeechOnly(
+                  questionId: q.id,
+                  transcript: answers[q.id] as String? ?? '',
+                  stt: stt,
+                  onTranscript: (v) => onChanged(q.id, v),
+                  onRebuild: onSttRebuild,
+                ),
+              AnswerType.serial7 => _Serial7(
+                  questionId: q.id,
+                  values: answers[q.id] as List<String>? ??
+                      List.filled(5, ''),
+                  stt: stt,
+                  onChanged: (v) => onChanged(q.id, v),
+                  onRebuild: onSttRebuild,
+                ),
+              AnswerType.spellBackwards => _SpellBackwards(
+                  values: answers[q.id] as List<String>? ??
+                      List.filled(5, ''),
+                  onChanged: (v) => onChanged(q.id, v),
+                ),
+            },
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  RESULTS VIEW

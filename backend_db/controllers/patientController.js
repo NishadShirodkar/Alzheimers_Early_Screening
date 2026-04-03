@@ -14,9 +14,6 @@ import Medicine from "../models/medicine.js";
  *
  * Header:
  *   Authorization: Bearer <token>
- *
- * On success → attaches decoded payload to req.user { id, phone, name }
- * On failure → 401 { message }
  */
 export const authMiddleware = (req, res, next) => {
   try {
@@ -44,7 +41,6 @@ export const authMiddleware = (req, res, next) => {
 
 /**
  * POST /api/patient/signup
- *
  * req.body:
  *   {
  *     name     : string  (required)
@@ -57,24 +53,21 @@ export const authMiddleware = (req, res, next) => {
  *     token   : string   (JWT, expires in 5h)
  *     patient : { id, phone, name }
  *   }
- *
- * res 400: { message: "Patient already exists" }
- * res 500: { message, error, stack }
  */
 export const signup = async (req, res) => {
   try {
-    const { name, phone, password } = req.body;
+    const { name, age, gender, phone, password } = req.body;
     console.log(`🚀 [signup] Attempting signup → name="${name}", phone="${phone}"`);
 
     const existingPatient = await Patient.findOne({ phone });
     if (existingPatient) {
-      console.warn(`⚠️  [signup] Phone "${phone}" is already registered`);
+      console.warn(`⚠️  [signup] phone "${phone}" is already registered`);
       return res.status(400).json({ message: "Patient already exists" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newPatient = new Patient({ name, phone, password: hashedPassword });
+    const newPatient = new Patient({ name, age, gender, phone, password: hashedPassword });
     const savedPatient = await newPatient.save();
     console.log(`📝 [signup] Patient saved to DB → id=${savedPatient._id}`);
 
@@ -121,10 +114,6 @@ export const signup = async (req, res) => {
  *     token   : string   (JWT, expires in 5h)
  *     patient : { id, phone, name }
  *   }
- *
- * res 400: { message: "Invalid credentials" }
- * res 404: { message: "Patient not found" }
- * res 500: { message, error, stack }
  */
 export const signin = async (req, res) => {
   try {
@@ -178,9 +167,6 @@ export const signin = async (req, res) => {
  *   {
  *     _id, name, phone, mealTimes, createdAt, updatedAt
  *   }
- *
- * res 404: { message: "Patient not found" }
- * res 500: { message: "Server error" }
  */
 export const fetchPatientInfo = async (req, res) => {
   try {
@@ -225,9 +211,6 @@ export const fetchPatientInfo = async (req, res) => {
  *     message   : "Meal times updated successfully"
  *     mealTimes : [ { meal, time }, ... ]
  *   }
- *
- * res 400: { message: "Invalid meal times" }
- * res 500: { message: "Server error" }
  */
 export const updateMealTimes = async (req, res) => {
   try {
@@ -277,8 +260,6 @@ export const updateMealTimes = async (req, res) => {
  *     count   : number
  *     alerts  : [ Medicine document, ... ]
  *   }
- *
- * res 500: { success: false, message, error }
  */
 export const getAlerts = async (req, res) => {
   try {
