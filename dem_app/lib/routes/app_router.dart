@@ -15,7 +15,7 @@ import '../screens/assessment/cookie_theft_screen.dart';
 import '../screens/assessment/tug_test_screen.dart';
 import '../screens/assessment/results_screen.dart';
 import '../screens/medications/medications_screen.dart';
-import '../screens/doctors/doctors_screen.dart';
+import '../pages/medical_summariser_page.dart';
 import '../screens/consultation/consultation_screen.dart';
 import '../screens/voice_assistant/voice_assistant_screen.dart';
 import '../screens/profile/profile_screen.dart';
@@ -99,7 +99,11 @@ class AppRouter {
       ),
       GoRoute(
         path: '/doctors',
-        builder: (context, state) => const DoctorsScreen(),
+        redirect: (context, state) => '/medical-summariser',
+      ),
+      GoRoute(
+        path: '/medical-summariser',
+        builder: (context, state) => const MedicalSummariserPage(),
       ),
       GoRoute(
         path: '/consultation',
