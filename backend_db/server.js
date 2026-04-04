@@ -19,6 +19,7 @@ mongoose
 
 // ── Routes ──
 app.use("/api/patient", patientRoutes);   // signup, signin, profile, meal times, alerts
+app.use("/api/report", reportRoutes);    // cognitive, voice results
 app.use("/api/medicine", medicineRoutes); // add medicine, fetch by day
 app.use("/api/alarm", alarmRoutes);       // upcoming alarms, details, taken, missed
 
