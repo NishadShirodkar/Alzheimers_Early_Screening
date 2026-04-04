@@ -43,6 +43,35 @@ except Exception as e:
     sys.exit(1)
 
 
+
+
+# --- Add after imports, before any functions ---
+FEATURE_NORMS = {
+    "filler_rate":         (0.015, 0.012, +1),
+    "hesitation_ratio":    (0.025, 0.018, +1),
+    "long_pause_rate":     (0.010, 0.010, +1),
+    "lexical_diversity":   (0.72,  0.12,  -1),
+    "avg_sentence_length": (12.0,  4.0,   -1),
+}
+
+def _sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
+
+def cognitive_to_probability(cog: dict, audio_avg_pause: float = 0.0, audio_pause_count: int = 0) -> float:
+    z_scores = []
+    weights = [1.2, 1.2, 1.0, 1.5, 1.0]  # filler, hesitation, long_pause, lex_div, sent_len
+
+    for (feat, (mu, sigma, direction)), w in zip(FEATURE_NORMS.items(), weights):
+        val = cog.get(feat, mu)
+        z = direction * (val - mu) / max(sigma, 1e-6)
+        z_scores.append(z * w)
+
+    if audio_pause_count > 0:
+        pause_z = (audio_avg_pause - 0.8) / 0.4
+        z_scores.append(pause_z * 1.3)
+
+    return float(_sigmoid(np.mean(z_scores)))
+
 # ==================== EXACT LOGIC FROM COLAB ====================
 
 def translate_to_english(text):
@@ -97,14 +126,23 @@ def cognitive_text_features(text):
     }
 
 
-def predict_cognitive_risk(text):
+# REPLACE the existing predict_cognitive_risk entirely
+def predict_cognitive_risk(text, audio_avg_pause: float = 0.0, audio_pause_count: int = 0):
     text_en = translate_to_english(text)
     clean = clean_scene_words(text_en)
 
     vec = tfidf.transform([clean])
-    prob = float(cookie_model.predict_proba(vec)[0][1])
+    p_model = float(cookie_model.predict_proba(vec)[0][1])
 
     cog = cognitive_text_features(clean)
+    p_cog = cognitive_to_probability(cog, audio_avg_pause, audio_pause_count)
+
+    # Weighted fusion — cognitive features weighted slightly higher
+    # because cookie model is domain-mismatched to conversational speech
+    p_final = 0.45 * p_model + 0.55 * p_cog
+
+    signal_gap = abs(p_model - p_cog)
+    confidence = "high" if signal_gap < 0.25 else ("medium" if signal_gap < 0.45 else "low")
 
     is_healthy = (
         cog["filler_rate"] < 0.02 and
@@ -113,20 +151,21 @@ def predict_cognitive_risk(text):
         cog["avg_sentence_length"] > 10
     )
 
-    # ✅ FIX: Actually apply override
-    if is_healthy:
-        prob = min(prob, 0.30)
-
     return {
-        "dementia_probability": round(prob, 3),
+        "dementia_probability": round(p_final, 3),
+        "component_scores": {
+            "lexical_model": round(p_model, 3),
+            "cognitive_features": round(p_cog, 3),
+        },
         "cognitive_markers": {
             "filler_rate": round(cog["filler_rate"], 3),
             "lexical_diversity": round(cog["lexical_diversity"], 3),
             "avg_sentence_length": round(cog["avg_sentence_length"], 2),
             "hesitation_ratio": round(cog["hesitation_ratio"], 3),
-            "long_pause_rate": round(cog["long_pause_rate"], 3)
+            "long_pause_rate": round(cog["long_pause_rate"], 3),
         },
-        "is_healthy": is_healthy
+        "confidence": confidence,
+        "is_healthy": is_healthy,
     }
 
 
@@ -174,22 +213,16 @@ def extract_assemblyai_audio_pauses(words):
 
 
 def process_audio(audio_file):
-    """Main pipeline - EXACT COLAB FLOW"""
     try:
-        # Check file exists
         if not os.path.exists(audio_file):
             raise FileNotFoundError(f"Audio file not found: {audio_file}")
 
-        # Step 1: Transcribe
         transcript_text, words = speech_to_text_assemblyai(audio_file)
-
-        # Step 2: Extract audio pauses
         avg_pause, pause_count = extract_assemblyai_audio_pauses(words)
 
-        # Step 3: Predict cognitive risk (EXACT logic)
-        risk_result = predict_cognitive_risk(transcript_text)
+        # ✅ CHANGE 1: pass audio pause info through
+        risk_result = predict_cognitive_risk(transcript_text, avg_pause, pause_count)
 
-        # Compile output - CONVERT ALL NUMPY TYPES TO PYTHON NATIVE
         output = {
             "status": "success",
             "transcript": transcript_text,
@@ -198,6 +231,12 @@ def process_audio(audio_file):
                 "pause_count": int(pause_count)
             },
             "dementia_probability": float(risk_result["dementia_probability"]),
+            # ✅ CHANGE 2: expose both component scores + confidence
+            "component_scores": {
+                "lexical_model": float(risk_result["component_scores"]["lexical_model"]),
+                "cognitive_features": float(risk_result["component_scores"]["cognitive_features"]),
+            },
+            "confidence": risk_result["confidence"],
             "cognitive_markers": {
                 "filler_rate": float(risk_result["cognitive_markers"]["filler_rate"]),
                 "lexical_diversity": float(risk_result["cognitive_markers"]["lexical_diversity"]),
@@ -205,16 +244,13 @@ def process_audio(audio_file):
                 "hesitation_ratio": float(risk_result["cognitive_markers"]["hesitation_ratio"]),
                 "long_pause_rate": float(risk_result["cognitive_markers"]["long_pause_rate"])
             },
-            "is_healthy_speech": bool(risk_result["is_healthy"])  # CONVERT NUMPY BOOL TO PYTHON BOOL
+            "is_healthy_speech": bool(risk_result["is_healthy"])
         }
 
         return output
 
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}
 
 
 if __name__ == "__main__":
