@@ -304,7 +304,7 @@ class _ResultsViewState extends State<ResultsView> {
   }
 
   void _continue() {
-    context.go('/assessment/results');
+    context.go('/assessment/tug-test');
   }
 
   @override
