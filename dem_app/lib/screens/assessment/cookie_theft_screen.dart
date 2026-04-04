@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
+import '../../core/utils/app_session.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../services/assessment_service.dart';
@@ -39,13 +42,11 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 
 	Future<void> _initializeAudioRecorder() async {
 		try {
-			// Request permission
 			final status = await Permission.microphone.request();
 			if (!status.isGranted) {
 				_showError('Microphone permission is required');
 				return;
 			}
-			// Initialize recorder
 			await _audioRecorder.closeRecorder();
 			await _audioRecorder.openRecorder();
 		} catch (e) {
@@ -128,11 +129,24 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 				patientId: patientId,
 			);
 
+			final transcript = result['data']['transcript'] as String?;
+			final audioMetrics = result['data']['audio_metrics'] as Map<String, dynamic>?;
+			final dementiaProbability = (result['data']['dementia_probability'] as num?)?.toDouble();
+			final cognitiveMarkers = result['data']['cognitive_markers'] as Map<String, dynamic>?;
+
+			// Store to AppSession only after we have actual results
+			AppSession().scores['cookie'] = {
+				'dementiaProbability': dementiaProbability,
+				'audioMetrics': audioMetrics,
+				'cognitiveMarkers': cognitiveMarkers,
+				'transcript': transcript,
+			};
+
 			setState(() {
-				_transcript = result['data']['transcript'];
-				_audioMetrics = result['data']['audio_metrics'];
-				_dementiaProbability = result['data']['dementia_probability'];
-				_cognitiveMarkers = result['data']['cognitive_markers'];
+				_transcript = transcript;
+				_audioMetrics = audioMetrics;
+				_dementiaProbability = dementiaProbability;
+				_cognitiveMarkers = cognitiveMarkers;
 				_isLoading = false;
 			});
 		} catch (e) {
@@ -153,6 +167,46 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 			_error = null;
 		});
 	}
+
+  Future<void> _uploadToBackend() async {
+    try {
+      const storage = FlutterSecureStorage();
+      final token = await storage.read(key: 'token');
+      final body = AppSession().scores;
+      final response = await http.post(
+        Uri.parse('http://192.168.55.176:5000/api/report/upload'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        context.go('/assessment/results');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to submit results. Please try again.')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  Future<void> _handleContinue() async {
+    final prob = _dementiaProbability ?? 0.0;
+    if (prob >= 0.6) {
+      context.go('/assessment/tug-test');
+    } else {
+      await _uploadToBackend();
+    }
+  }
 
 	void _showError(String message) {
 		ScaffoldMessenger.of(context).showSnackBar(
@@ -185,7 +239,6 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 			child: Column(
 				crossAxisAlignment: CrossAxisAlignment.start,
 				children: [
-					// Instructions
 					const Text(
 						'Cookie Theft Test',
 						style: TextStyle(
@@ -207,7 +260,6 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 					),
 					const SizedBox(height: 24),
 
-					// Cookie Theft Image
 					Container(
 						height: 200,
 						width: double.infinity,
@@ -240,7 +292,6 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 					),
 					const SizedBox(height: 24),
 
-					// Recording Status Box
 					Container(
 						padding: const EdgeInsets.all(16),
 						decoration: BoxDecoration(
@@ -276,7 +327,6 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 					),
 					const SizedBox(height: 24),
 
-					// Recording Controls
 					if (!_isRecording)
 						NeuraButton(
 							text: '🎤 Start Recording',
@@ -289,7 +339,6 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 						),
 					const SizedBox(height: 12),
 
-					// Submit Button
 					if (!_isRecording && _audioFilePath != null)
 						_isLoading
 							? SizedBox(
@@ -327,7 +376,6 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 								],
 							),
 
-					// Error Message
 					if (_error != null) ...[
 						const SizedBox(height: 24),
 						Container(
@@ -368,11 +416,9 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 			child: Column(
 				crossAxisAlignment: CrossAxisAlignment.start,
 				children: [
-					// Dementia Probability Card
 					_buildRiskCard(),
 					const SizedBox(height: 24),
 
-					// Audio Metrics
 					if (_audioMetrics != null)
 						_buildMetricsSection(
 							'Audio Analysis',
@@ -383,7 +429,6 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 						),
 					const SizedBox(height: 16),
 
-					// Cognitive Markers
 					if (_cognitiveMarkers != null)
 						_buildMetricsSection(
 							'Cognitive Markers',
@@ -397,7 +442,6 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 						),
 					const SizedBox(height: 16),
 
-					// Transcript
 					const Text(
 						'Transcript',
 						style: TextStyle(
@@ -423,13 +467,14 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 					),
 					const SizedBox(height: 32),
 
-					// Action Buttons
 					SizedBox(
 						width: double.infinity,
 						child: NeuraButton(
-							text: 'Next Assessment',
-							onTap: () => context.go('/assessment/tug-test'),
-						),
+              text: _dementiaProbability != null && _dementiaProbability! >= 0.6
+                  ? 'Next Assessment'
+                  : 'Save & Continue',
+              onTap: _handleContinue,
+            ),
 					),
 					const SizedBox(height: 12),
 					SizedBox(
