@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../screens/splash/splash_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/auth/login_screen.dart';
@@ -7,15 +9,18 @@ import '../screens/auth/profile_setup_screen.dart';
 import '../screens/reports/reports_screen.dart';
 import '../screens/assessment/assessment_overview_screen.dart';
 import '../screens/assessment/mmse_test_screen.dart';
-import '../screens/assessment/voice_analysis_screen.dart';
+import '../screens/assessment/voice/voice_check_view.dart';
+import '../screens/assessment/voice/voice_check_viewmodel.dart';
 import '../screens/assessment/cookie_theft_screen.dart';
 import '../screens/assessment/tug_test_screen.dart';
 import '../screens/assessment/results_screen.dart';
-import '../screens/medications/medications_screen.dart';
-import '../screens/doctors/doctors_screen.dart';
+import '../screens/medications/add_medication.dart';
+import '../screens/medications/view_medications.dart';
 import '../screens/consultation/consultation_screen.dart';
 import '../screens/voice_assistant/voice_assistant_screen.dart';
 import '../screens/profile/profile_screen.dart';
+import '../screens/assessment/voice/results_view.dart';
+import '../screens/assessment/voice/processing_view.dart';
 
 class AppRouter {
   static final router = GoRouter(
@@ -49,9 +54,25 @@ class AppRouter {
         path: '/assessment/mmse',
         builder: (context, state) => const MmseTestScreen(),
       ),
-      GoRoute(
-        path: '/assessment/voice-analysis',
-        builder: (context, state) => const VoiceAnalysisScreen(),
+      ShellRoute(
+        builder: (context, state, child) => ChangeNotifierProvider(
+          create: (_) => VoiceCheckViewModel(),
+          child: child,
+        ),
+        routes: [
+          GoRoute(
+            path: '/assessment/voice-analysis',
+            builder: (context, state) => const VoiceCheckView(),
+          ),
+          GoRoute(
+            path: '/assessment/voice-processing',
+            builder: (context, state) => const ProcessingView(),
+          ),
+          GoRoute(
+            path: '/assessment/voice/results',
+            builder: (context, state) => const ResultsView(),
+          ),
+        ],
       ),
       GoRoute(
         path: '/assessment/cookie-theft',
@@ -70,12 +91,12 @@ class AppRouter {
         builder: (context, state) => const ReportsScreen(),
       ),
       GoRoute(
-        path: '/medications',
-        builder: (context, state) => const MedicationsScreen(),
+        path: '/view-medications',
+        builder: (context, state) => const ViewMedicationsScreen(),
       ),
       GoRoute(
-        path: '/doctors',
-        builder: (context, state) => const DoctorsScreen(),
+        path: '/add-medication',
+        builder: (context, state) => const AddMedicationScreen(),
       ),
       GoRoute(
         path: '/consultation',

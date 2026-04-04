@@ -71,6 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       try {
+        print("Attempting login with phone: $phone");
         final response = await http.post(
           Uri.parse('http://192.168.55.105:5000/api/patient/signin'),
           headers: {'Content-Type': 'application/json'},
@@ -182,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
 
                       const SizedBox(height: 16),
-                      
+
                       // Password
                       TextFormField(
                         controller: _passwordController,

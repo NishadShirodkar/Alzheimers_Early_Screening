@@ -1,14 +1,19 @@
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../../core/theme/app_colors.dart';
 import '../../widgets/common/neura_button.dart';
+import '../../core/utils/app_session.dart';
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  THEME CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -25,7 +30,6 @@ class _T {
   static const shadow = Color(0x14000000);
 
   static const radiusCard = 24.0;
-  static const radiusInner = 14.0;
 
   static const sectionGradients = [
     [Color(0xFF4F6EF7), Color(0xFF7B93FF)],
@@ -72,6 +76,10 @@ InputDecoration _decoration({
 
 enum AnswerType { text, speechOnly, serial7, spellBackwards }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  QUESTION BANK
+// ═══════════════════════════════════════════════════════════════════════════
+
 class MmseQuestion {
   final String id;
   final String prompt; // shown as large card text + read by TTS
@@ -107,10 +115,6 @@ class MmseSection {
     required this.questions,
   });
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  QUESTION BANK
-// ═══════════════════════════════════════════════════════════════════════════
 
 final List<MmseSection> mmseSections = [
   // ── 1. Orientation to Time ─────────────────────────────────────────────
@@ -1710,6 +1714,47 @@ class _ResultsView extends StatelessWidget {
     'Language': 6,
   };
 
+  Future<void> _handleSaveAndContinue(BuildContext context) async {
+    AppSession().scores['mmse'] = total;
+
+    if (total < 20) {
+      context.go('/assessment/voice-analysis');
+    } else {
+      await _submitResults(context);
+    }
+  }
+
+Future<void> _submitResults(BuildContext context) async {
+  try {
+    final storage = const FlutterSecureStorage();
+    final token = await storage.read(key: 'token');
+    final body = AppSession().scores;
+    final response = await http.post(
+      Uri.parse('http://192.168.55.176:5000/api/report/upload'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(body),
+    );
+
+    if (!context.mounted) return;
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      context.go('/assessment/results');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to submit results. Please try again.')),
+      );
+    }
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error: $e')),
+    );
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     final color = MmseScorer.interpretationColor(total);
@@ -1836,7 +1881,7 @@ class _ResultsView extends StatelessWidget {
             label: 'Save & Continue',
             icon: Icons.arrow_forward_rounded,
             gradient: const [_T.accent, _T.accentDark],
-            onTap: () => context.go('/assessment/voice-analysis'),
+            onTap: () => _handleSaveAndContinue(context),
           ),
           const SizedBox(height: 12),
           _ActionButton(
