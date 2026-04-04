@@ -43,6 +43,9 @@ dependencies:
   speech_to_text: ^7.3.0
   flutter_secure_storage: ^10.0.0
   http: ^1.6.0
+  http_parser: ^4.0.2
+  flutter_sound: ^9.14.0
+  path_provider: ^2.1.0
 
 dev_dependencies:
   flutter_test:
@@ -68,8 +71,9 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-  - dem_app/assets/pencil.png
-  - dem_app/assets/watch.jpg
+  - assets/pencil.png
+  - assets/watch.jpg
+  - assets/cookie_theft.jpg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

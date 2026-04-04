@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import patientRoutes from "./routes/patientRoutes.js";
 import medicineRoutes from "./routes/medicineRoutes.js";
 import alarmRoutes from "./routes/alarmRoutes.js";
+import assessmentRoutes from "./routes/assessmentRoutes.js";
 
 dotenv.config();
 
@@ -18,8 +19,9 @@ mongoose
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 // ── Routes ──
-app.use("/api/patient", patientRoutes);   // signup, signin, profile, meal times, alerts
-app.use("/api/medicine", medicineRoutes); // add medicine, fetch by day
-app.use("/api/alarm", alarmRoutes);       // upcoming alarms, details, taken, missed
+app.use("/api/patient", patientRoutes);     // signup, signin, profile, meal times, alerts
+app.use("/api/medicine", medicineRoutes);   // add medicine, fetch by day
+app.use("/api/alarm", alarmRoutes);         // upcoming alarms, details, taken, missed
+app.use("/api/assessment", assessmentRoutes); // cognitive assessments (Cookie Theft, etc.)
 
 app.listen(5000, "0.0.0.0", () => console.log("🚀 Server running on port 5000"));
