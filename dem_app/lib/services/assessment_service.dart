@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:http_parser/http_parser.dart';
 
 // Configure with your backend laptop's IP address
-const String apiBaseUrl = "http://192.168.55.105:5000/api";
+const String apiBaseUrl = "http://192.168.55.176:5000/api";
 
 class AssessmentService {
   /// Process cookie theft assessment with audio file
