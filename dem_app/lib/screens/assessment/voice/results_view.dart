@@ -31,7 +31,7 @@ class ResultsView extends StatelessWidget {
         voiceScores['riskLevel'] as String? ?? 'Unknown';
     final double pct = riskScore * 100;
 
-    Future<void> _submitResults(BuildContext context) async {
+    Future<void> submitResults(BuildContext context) async {
       try {
         final storage = const FlutterSecureStorage();
         final token = await storage.read(key: 'token');
@@ -65,10 +65,10 @@ class ResultsView extends StatelessWidget {
 
     Future<void> handleSaveAndContinue(BuildContext context) async {
       // riskScore < 0.20 means the recording quality was too low — retry.
-      if (riskScore < 0.20) {
-        context.go('/assessment/voice-analysis');
+      if (level.toLowerCase() == 'high') {
+        context.go('/assessment/cookie-theft');
       } else {
-        await _submitResults(context);
+        await submitResults(context);
       }
     }
 
@@ -113,8 +113,9 @@ class ResultsView extends StatelessWidget {
                     ),
                     elevation: 0,
                   ),
-                  child: const Text(
-                    'Continue to Cognitive Assessment',
+                  child: const Text(level.toLowerCase() == 'high'
+                        ? 'Continue to Cognitive Assessment'
+                        : 'Save & Continue',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,

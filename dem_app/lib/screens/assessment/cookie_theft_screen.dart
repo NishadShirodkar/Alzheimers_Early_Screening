@@ -5,6 +5,10 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import '../../core/utils/app_session.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../services/assessment_service.dart';
@@ -120,6 +124,13 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 			_error = null;
 		});
 
+    AppSession().scores['cookie'] = {
+      'dementiaProbability': _dementiaProbability,
+      'audioMetrics': _audioMetrics,
+      'cognitiveMarkers': _cognitiveMarkers,
+      'transcript': _transcript,
+    };
+
 		try {
 			const patientId = "69d0cd4a8c9a30bd8cb24fdd"; // TODO: Replace with actual patient ID
 
@@ -153,6 +164,48 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 			_error = null;
 		});
 	}
+
+  Future<void> _uploadToBackend() async {
+    try {
+      final storage = const FlutterSecureStorage();
+      final token = await storage.read(key: 'token');
+      final body = AppSession().scores;
+      final response = await http.post(
+        Uri.parse('http://192.168.55.176:5000/api/report/upload'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        context.go('/assessment/results');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to submit results. Please try again.')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  Future<void> _handleContinue() async {
+    final prob = _dementiaProbability ?? 0.0;
+    if (prob >= 0.6) {
+      // High risk — needs further assessment
+      context.go('/assessment/tug-test');
+    } else {
+      // Acceptable — post to backend and finish
+      await _uploadToBackend();
+    }
+  }
 
 	void _showError(String message) {
 		ScaffoldMessenger.of(context).showSnackBar(
@@ -427,9 +480,11 @@ class _CookieTheftScreenState extends State<CookieTheftScreen> {
 					SizedBox(
 						width: double.infinity,
 						child: NeuraButton(
-							text: 'Next Assessment',
-							onTap: () => context.go('/assessment/tug-test'),
-						),
+              text: _dementiaProbability != null && _dementiaProbability! >= 0.6
+                  ? 'Next Assessment'
+                  : 'Save & Continue',
+              onTap: _handleContinue,
+            ),
 					),
 					const SizedBox(height: 12),
 					SizedBox(
