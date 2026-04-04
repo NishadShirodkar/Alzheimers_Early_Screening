@@ -76,7 +76,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('http://192.168.55.176:5000/api/patient/signup'),
+        Uri.parse('http://192.168.55.105:5000/api/patient/signup'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name': _nameController.text.trim(),
