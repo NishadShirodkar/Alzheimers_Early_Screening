@@ -95,6 +95,16 @@ class _ResultsViewState extends State<ResultsView> {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         context.go('/assessment/results');
+      } else if (response.statusCode == 401) {
+        // Token expired, clear storage and redirect to login
+        await storage.delete(key: 'token');
+        await storage.delete(key: 'userId');
+        if (context.mounted) {
+          context.go('/login');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Session expired. Please login again.')),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
