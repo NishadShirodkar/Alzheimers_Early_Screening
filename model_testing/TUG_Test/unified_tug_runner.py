@@ -5,7 +5,6 @@ from pathlib import Path
 
 
 def import_major_tasks(major_dir: Path):
-    """Import the existing sit/stand task functions without modifying their code."""
     previous_cwd = Path.cwd()
 
     try:
@@ -22,7 +21,6 @@ def import_major_tasks(major_dir: Path):
 
 
 def resolve_pose_model(base_dir: Path) -> Path:
-    """Find the existing MediaPipe pose model used by the walk scripts."""
     candidates = [
         base_dir / "pose_landmarker_full.task",
         base_dir / "walk-f and b" / "pose_landmarker_full.task",
@@ -33,7 +31,7 @@ def resolve_pose_model(base_dir: Path) -> Path:
         if candidate.exists():
             return candidate
 
-    raise FileNotFoundError("pose_landmarker_full.task not found in TUG_Test")
+    raise FileNotFoundError("pose_landmarker_full.task not found")
 
 
 def create_pose_landmarker(model_path: Path):
@@ -52,8 +50,7 @@ def create_pose_landmarker(model_path: Path):
     return mp_pose.create_from_options(options)
 
 
-def run_walk_phase(cap, base_dir: Path) -> bool:
-    """Inline the existing walk logic so the same camera session stays open."""
+def run_walk_phase(cap, base_dir: Path):
     import cv2
     import mediapipe as mp
     import numpy as np
@@ -61,28 +58,16 @@ def run_walk_phase(cap, base_dir: Path) -> bool:
     model_path = resolve_pose_model(base_dir)
     landmarker = create_pose_landmarker(model_path)
 
-    patient_id = input("Enter Patient ID: ")
-    age = int(input("Enter Age: "))
-
-    age_group = "Young Adults"
-    forward_ref, forward_sd = 2.2, 0.4
-    backward_ref, backward_sd = 2.0, 0.6
-
     hip_positions = []
     timestamps = []
 
-    state = "WAIT"
-    state_start = time.time()
-
-    forward_window = 6
-    backward_window = 6
-    motion_threshold = 8
-
-    walk_started_forward = False
-    walk_started_backward = False
+    state = "FORWARD"
     prev_hip = None
 
-    print("\nClick camera window and press S")
+    direction_history = []
+    walk_started_backward = False
+
+    print("\n[Stage] Walk → Turn → Return")
 
     try:
         while cap.isOpened():
@@ -96,227 +81,126 @@ def run_walk_phase(cap, base_dir: Path) -> bool:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-            timestamp_ms = int(time.time() * 1000)
-            result = landmarker.detect_for_video(mp_image, timestamp_ms)
+            ts = int(time.time() * 1000)
+            result = landmarker.detect_for_video(mp_image, ts)
 
-            key = cv2.waitKey(1) & 0xFF
-            elapsed = time.time() - state_start
+            if result.pose_landmarks and len(result.pose_landmarks) > 0:
+                lm = result.pose_landmarks[0]
+                hip_x = ((lm[23].x + lm[24].x) / 2) * frame_width
 
-            if state == "WAIT":
-                cv2.putText(frame, "Press S to Start Test",
-                            (90, 250), cv2.FONT_HERSHEY_SIMPLEX,
-                            1, (0, 255, 255), 3)
+                if prev_hip is not None:
+                    movement = hip_x - prev_hip
 
-                if key == ord('s'):
-                    hip_positions.clear()
-                    timestamps.clear()
-                    state = "COUNTDOWN"
-                    state_start = time.time()
+                    if movement > 5:
+                        direction = "right"
+                    elif movement < -5:
+                        direction = "left"
+                    else:
+                        direction = "still"
 
-            elif state == "COUNTDOWN":
-                remain = 3 - int(elapsed)
+                    direction_history.append(direction)
 
-                cv2.putText(frame, f"Starting in {remain}",
-                            (120, 250), cv2.FONT_HERSHEY_SIMPLEX,
-                            2, (0, 0, 255), 5)
+                    # TURN DETECTION
+                    if state == "FORWARD" and len(direction_history) > 10:
+                        last = direction_history[-10:]
+                        if "left" in last and "right" in last:
+                            print("Turn detected")
+                            state = "BACKWARD"
 
-                if elapsed >= 3:
-                    state = "FORWARD"
-                    walk_started_forward = False
-                    prev_hip = None
-                    state_start = time.time()
+                    # BACKWARD START
+                    if state == "BACKWARD" and abs(movement) > 5:
+                        walk_started_backward = True
 
-            elif state == "FORWARD":
+                prev_hip = hip_x
+
+                hip_positions.append(hip_x)
+                timestamps.append(time.time())
+
+            # DISPLAY
+            if state == "FORWARD":
                 cv2.putText(frame, "WALK FORWARD",
-                            (70, 60), cv2.FONT_HERSHEY_SIMPLEX,
-                            1.3, (0, 255, 0), 4)
-
-                if result.pose_landmarks and len(result.pose_landmarks) > 0:
-                    lm = result.pose_landmarks[0]
-                    hip_x = ((lm[23].x + lm[24].x) / 2) * frame_width
-
-                    if prev_hip is not None:
-                        motion = abs(hip_x - prev_hip)
-                        if motion > motion_threshold and not walk_started_forward:
-                            walk_started_forward = True
-                            state_start = time.time()
-                            print("Forward walking detected")
-
-                    prev_hip = hip_x
-
-                    if walk_started_forward:
-                        hip_positions.append(hip_x)
-                        timestamps.append(time.time())
-                else:
-                    print("No person detected")
-
-                if walk_started_forward and elapsed >= forward_window:
-                    state = "BACKWARD"
-                    walk_started_backward = False
-                    prev_hip = None
-                    state_start = time.time()
+                            (60, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                            1.2, (0, 255, 0), 4)
 
             elif state == "BACKWARD":
-                cv2.putText(frame, "NOW WALK BACK",
+                cv2.putText(frame, "RETURN BACK",
                             (60, 60), cv2.FONT_HERSHEY_SIMPLEX,
-                            1.3, (255, 200, 0), 4)
+                            1.2, (255, 200, 0), 4)
 
-                if result.pose_landmarks and len(result.pose_landmarks) > 0:
-                    lm = result.pose_landmarks[0]
-                    hip_x = ((lm[23].x + lm[24].x) / 2) * frame_width
+                # EXIT CONDITION (FIXED)
+                if walk_started_backward and prev_hip is not None:
+                    if abs(movement) < 2:   # user slowed/stopped
+                        print("Return complete")
+                        break
 
-                    if prev_hip is not None:
-                        motion = abs(hip_x - prev_hip)
-                        if motion > motion_threshold and not walk_started_backward:
-                            walk_started_backward = True
-                            state_start = time.time()
-                            print("Backward walking detected")
+            cv2.imshow("TUG Walk Phase", frame)
 
-                    prev_hip = hip_x
-
-                    if walk_started_backward:
-                        hip_positions.append(hip_x)
-                        timestamps.append(time.time())
-                else:
-                    print("No person detected")
-
-                if walk_started_backward and elapsed >= backward_window:
-                    state = "DONE"
-
-            elif state == "DONE":
-                cv2.putText(frame, "TEST COMPLETE",
-                            (80, 250), cv2.FONT_HERSHEY_SIMPLEX,
-                            2, (255, 0, 0), 5)
-
-            cv2.imshow("Walking Assessment", frame)
-
-            if state == "DONE":
-                cv2.waitKey(2000)
-                print("\nWalk phase completed")
+            if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-            if key == ord('q'):
-                break
-
-        hip_positions_array = np.array(hip_positions)
-        timestamps_array = np.array(timestamps)
-
-        if len(hip_positions_array) < 20:
-            print("\nNot enough walking data captured.")
-            return False
-
-        velocity = np.gradient(hip_positions_array) / np.gradient(timestamps_array)
-        forward_mask = velocity < -15
-        backward_mask = velocity > 15
-
-        def duration(mask):
-            start = None
-            total = 0
-            for index in range(len(mask)):
-                if mask[index] and start is None:
-                    start = timestamps_array[index]
-                elif not mask[index] and start is not None:
-                    total += timestamps_array[index] - start
-                    start = None
-            return total
-
-        forward_time = duration(forward_mask)
-        backward_time = duration(backward_mask)
-
-        def interpret(value, ref, sd):
-            if value > ref + sd:
-                return "Longer than expected range"
-            if value < ref - sd:
-                return "Faster than expected range"
-            return "Within expected range"
-
-        print("\n======================================")
-        print("        WALKING ASSESSMENT REPORT")
-        print("======================================\n")
-        print(f"Patient ID      : {patient_id}")
-        print(f"Age             : {age}")
-        print(f"Age Group       : {age_group}")
-        print(f"Assessment Date : {time.strftime('%d %B %Y')}")
-        print("\n--------------------------------------")
-        print("\n1️⃣ Walking Forward")
-        print(f"Measured Duration : {round(forward_time, 2)} seconds")
-        print(f"Reference Range   : {forward_ref} ± {forward_sd}")
-        print(f"Observation       : {interpret(forward_time, forward_ref, forward_sd)}")
-        print("\n2️⃣ Walking Backward")
-        print(f"Measured Duration : {round(backward_time, 2)} seconds")
-        print(f"Reference Range   : {backward_ref} ± {backward_sd}")
-        print(f"Observation       : {interpret(backward_time, backward_ref, backward_sd)}")
-        print("\n--------------------------------------")
-        print("Overall Interpretation:")
-        print("Temporal walking performance evaluated")
-        print("against age-related reference values.")
-        print("\n======================================")
         return True
-
-    except Exception as exc:
-        print(f"Walk phase failed: {exc}")
-        return False
 
     finally:
         landmarker.close()
         cv2.destroyAllWindows()
 
-
-def main() -> None:
+def main():
     base_dir = Path(__file__).resolve().parent
     major_dir = base_dir / "Major project- dementia"
-    walk_dir = base_dir / "walk-f and b"
-
-    if not major_dir.exists():
-        print(f"Missing folder: {major_dir}")
-        return
 
     run_sit_to_stand, run_stand_to_sit = import_major_tasks(major_dir)
 
     import cv2
 
-    print("Unified TUG Runner")
-    print("This runs your existing scripts in one continuous camera session:")
-    print("1) Sit-to-Stand")
-    print("2) Walk Forward/Back")
-    print("3) Stand-to-Sit")
-
-    input("\nPress Enter to start the unified flow...")
+    print("\n===== PURE TUG TEST START =====")
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Camera could not be opened.")
         return
 
-    previous_cwd = Path.cwd()
-
     try:
         os.chdir(major_dir)
-        print("\n[Stage] Sit-to-Stand task")
+
+        print("\n[Stage 1] Sit-to-Stand")
         run_sit_to_stand(cap)
 
-        input("\nSit-to-Stand done. Press Enter to continue to walking stage...")
+        # ✅ START TIMER HERE (AFTER STANDING)
+        tug_start = time.time()
 
-        os.chdir(walk_dir)
+        print("\n[Stage 2] Walk + Turn + Return")
+        os.chdir(base_dir)
         ok = run_walk_phase(cap, base_dir)
         if not ok:
-            print("\nStopped at Walk stage.")
+            print("Walk failed")
             return
 
-        input("\nWalk stage done. Press Enter to continue to Stand-to-Sit...")
-
+        print("\n[Stage 3] Stand-to-Sit")
         os.chdir(major_dir)
-        print("\n[Stage] Stand-to-Sit task")
         run_stand_to_sit(cap)
 
-        print("\nUnified TUG flow completed.")
-        print("Reports are saved by the existing scripts in their current report locations.")
+        # ✅ STOP TIMER AFTER SITTING
+        tug_end = time.time()
+        total_time = tug_end - tug_start
+
+        print("\n==============================")
+        print("        TUG RESULT")
+        print("==============================")
+        print(f"Total TUG Time: {round(total_time,2)} seconds")
+
+        if total_time < 10:
+            risk = "Low Risk"
+        elif total_time < 14:
+            risk = "Moderate Risk"
+        else:
+            risk = "High Fall Risk"
+
+        print(f"Risk Level: {risk}")
+        print("==============================")
 
     finally:
-        os.chdir(previous_cwd)
         cap.release()
         cv2.destroyAllWindows()
-
 
 if __name__ == "__main__":
     main()
